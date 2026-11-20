@@ -147,6 +147,30 @@ export function startsWithLetter(answer: string, letter: string): boolean {
   return n.length > 0 && n.startsWith(normalize(letter));
 }
 
+const VOWELS = /[aeiouy]/;
+
+/**
+ * Por qué una respuesta no vale, o null si pasa los controles automáticos.
+ * No es un diccionario: atrapa "h", "hhh", "Hxzq" y cosas así. Lo demás se
+ * anula a mano en la revisión. Las marcas pueden ser siglas (LG, HP, H&M).
+ */
+export function answerProblem(answer: string, letter: string, cat: CategoryKey): string | null {
+  const n = normalize(answer);
+  if (!n) return null; // vacía: no es "inválida", simplemente no suma
+  if (!n.startsWith(normalize(letter))) return `No empieza con ${letter}`;
+  const ls = n.replace(/[^a-zñ]/g, "");
+  const isBrand = cat === "marca";
+  const min = isBrand ? 2 : 3;
+  if (ls.length < min) return `Muy corta (mínimo ${min} letras)`;
+  if (/^(.)\1*$/.test(ls)) return "No es una palabra";
+  if (/([a-zñ])\1\1/.test(ls)) return "Tiene letras repetidas de más";
+  if (!isBrand) {
+    if (!VOWELS.test(ls)) return "No es una palabra (sin vocales)";
+    if (n.split(" ").some((w) => /[^aeiouy\s\d]{5,}/.test(w))) return "No es una palabra";
+  }
+  return null;
+}
+
 export const invalidKey = (playerId: string, cat: CategoryKey) => `${playerId}|${cat}`;
 
 /**
@@ -166,7 +190,7 @@ export function scoreRound(
     const valid = new Map<string, string>();
     for (const id of ids) {
       const raw = answers[id]?.[key] ?? "";
-      if (startsWithLetter(raw, letter) && !invalid.has(invalidKey(id, key))) {
+      if (normalize(raw) && answerProblem(raw, letter, key) === null && !invalid.has(invalidKey(id, key))) {
         valid.set(id, normalize(raw));
       }
     }

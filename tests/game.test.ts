@@ -4,6 +4,7 @@ import {
   ROUND_MS,
   SPIN_MS,
   STOP_MS,
+  answerProblem,
   derivePhase,
   initialGame,
   invalidKey,
@@ -103,7 +104,8 @@ describe("partida completa", () => {
     if ("same" in st) throw new Error("esperaba estado completo");
     expect(st.game.phase).toBe("playing");
     const L = st.game.letter!;
-    const full = (x: string) => ({ nombre: L + x, serie: L + x, lugar: L + x, color: L + x, marca: L + x });
+    const w = (x: string) => L + "ola" + x;
+    const full = (x: string) => ({ nombre: w(x), serie: w(x), lugar: w(x), color: w(x), marca: w(x) });
 
     await act({ type: "answer", playerId: B, answers: { nombre: L + "a" } });
     // Ana todavía no ve las de Beto
@@ -113,7 +115,7 @@ describe("partida completa", () => {
 
     await expect(act({ type: "basta", playerId: A, answers: { nombre: L } })).rejects.toThrow();
     await act({ type: "basta", playerId: A, answers: full("a") });
-    await act({ type: "answer", playerId: B, answers: { ...full("a"), color: L + "b" } });
+    await act({ type: "answer", playerId: B, answers: { ...full("a"), color: w("b") } });
 
     vi.advanceTimersByTime(STOP_MS);
     const rev = await getState(B, null);
@@ -160,7 +162,7 @@ describe("límite de rondas y cortes automáticos", () => {
     const st = await getState(playerId, null);
     if ("same" in st) throw new Error();
     const L = st.game.letter!;
-    return { nombre: L + "a", serie: L + "b", lugar: L + "c", color: L + "d", marca: L + "e" };
+    return { nombre: L + "ola", serie: L + "ole", lugar: L + "oli", color: L + "olo", marca: L + "olu" };
   };
 
   async function playRound() {
@@ -348,5 +350,43 @@ describe("chat", () => {
     const st = await getState(A, null);
     if ("same" in st) throw new Error();
     expect(st.chat.map((m) => m.text)).toEqual(["¡vamos!"]);
+  });
+});
+
+describe("answerProblem", () => {
+  it("rechaza letras sueltas, repeticiones y cosas sin vocales", () => {
+    expect(answerProblem("h", "H", "serie")).toMatch(/corta/);
+    expect(answerProblem("Ho", "H", "nombre")).toMatch(/corta/);
+    expect(answerProblem("hhhh", "H", "color")).toMatch(/palabra/);
+    expect(answerProblem("Hooola", "H", "nombre")).toMatch(/repetidas/);
+    expect(answerProblem("Hxzq", "H", "lugar")).toMatch(/vocales/);
+    expect(answerProblem("Hrtxzqk", "H", "lugar")).toBeTruthy();
+    expect(answerProblem("Gato", "H", "nombre")).toMatch(/No empieza/);
+    expect(answerProblem("", "H", "nombre")).toBeNull();
+  });
+
+  it("acepta palabras reales, frases y siglas de marcas", () => {
+    for (const [a, l, c] of [
+      ["Hugo", "H", "nombre"],
+      ["Había una vez en Hollywood", "H", "serie"],
+      ["Holanda", "H", "lugar"],
+      ["Hueso", "H", "color"],
+      ["H&M", "H", "marca"],
+      ["LG", "L", "marca"],
+      ["BMW", "B", "marca"],
+      ["Christopher", "C", "nombre"],
+      ["Ñandú", "Ñ", "nombre"],
+      ["Brooklyn", "B", "lugar"],
+      ["Mimo &Co", "M", "marca"],
+    ] as const) {
+      expect(answerProblem(a, l, c), a).toBeNull();
+    }
+    expect(answerProblem("hh", "H", "marca")).toBeTruthy();
+  });
+
+  it("las inválidas valen 0 en el puntaje", () => {
+    const e = { nombre: "", serie: "", lugar: "", color: "", marca: "" };
+    const pts = scoreRound("H", { a: { ...e, serie: "h", color: "Hueso" } }, new Set());
+    expect(pts.a).toMatchObject({ serie: 0, color: 10 });
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { type Answers, type CategoryKey, CATEGORIES, invalidKey } from "@/lib/game";
+import { type Answers, type CategoryKey, CATEGORIES, answerProblem, invalidKey } from "@/lib/game";
 
 type Props = {
   letter: string;
@@ -58,17 +58,21 @@ export default function Review({ letter, answers, invalid, preview, nameOf, me, 
                     const text = answers[id]?.[key]?.trim() ?? "";
                     const isInv = inv.has(invalidKey(id, key));
                     const p = preview[id]?.[key] ?? 0;
+                    const problem = text ? answerProblem(text, letter, key) : null;
                     return (
                       <td key={key} className="border-t border-line px-1 py-2">
                         <button
                           type="button"
                           disabled={!text}
                           onClick={() => onToggle(id, key)}
-                          title={isInv ? "Devolver respuesta" : "Anular respuesta"}
+                          title={problem ?? (isInv ? "Devolver respuesta" : "Anular respuesta")}
                           className="group flex w-full items-start justify-between gap-2 rounded-lg px-2 py-1 text-left transition hover:bg-card disabled:cursor-default"
                         >
-                          <span className={`break-words ${isInv ? "text-muted line-through" : ""} ${!text ? "text-muted" : ""}`}>
-                            {text || "—"}
+                          <span className="flex min-w-0 flex-col">
+                            <span className={`break-words ${isInv ? "text-muted line-through" : ""} ${!text ? "text-muted" : ""}`}>
+                              {text || "—"}
+                            </span>
+                            {problem && <span className="text-[0.7rem] leading-tight text-accent">{problem}</span>}
                           </span>
                           <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-xs font-bold tabular-nums ${badge(p)}`}>
                             {p}

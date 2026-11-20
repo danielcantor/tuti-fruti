@@ -1,6 +1,6 @@
 "use client";
 
-import { type Answers, CATEGORIES, isComplete, startsWithLetter } from "@/lib/game";
+import { type Answers, CATEGORIES, answerProblem, isComplete } from "@/lib/game";
 
 type Props = {
   letter: string;
@@ -23,12 +23,13 @@ export default function AnswerForm({ letter, answers, onChange, onBasta, locked,
     >
       {CATEGORIES.map(({ key, label }, i) => {
         const v = answers[key];
-        const wrong = v.trim().length > 0 && !startsWithLetter(v, letter);
+        const problem = answerProblem(v, letter, key);
+        const wrong = problem !== null;
         return (
           <label key={key} className="group block">
             <span className="mb-1 flex items-baseline justify-between text-sm font-medium text-muted">
               {label}
-              {wrong && <span className="text-xs text-accent">No empieza con {letter}</span>}
+              {wrong && <span className="text-xs text-accent">{problem}</span>}
             </span>
             <input
               autoFocus={i === 0}

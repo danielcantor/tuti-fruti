@@ -42,7 +42,7 @@ for (let r = 1; r <= 3; r++) {
     await a.screenshot({ path: `${OUT}/r-2-jugando.png` });
   }
   const inputs = a.locator("form input");
-  for (let i = 0; i < 5; i++) await inputs.nth(i).fill(`${L}${r}${i}`);
+  for (let i = 0; i < 5; i++) await inputs.nth(i).fill(`${L}ola${r}${i}`);
   // Beto completa solo un casillero: los otros 4 cuentan como vacíos.
   await b.locator("form input").first().fill(`${L}beto${r}`);
   await sleep(900);
