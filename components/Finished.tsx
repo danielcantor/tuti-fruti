@@ -1,9 +1,11 @@
 "use client";
 
-import { winners } from "@/lib/game";
+import { computeAwards } from "@/lib/awards";
+import { type RoundResult, winners } from "@/lib/game";
 
 type Props = {
   totals: Record<string, number>;
+  results: RoundResult[];
   rounds: number;
   byIdle: boolean;
   nameOf: (id: string) => string;
@@ -13,7 +15,8 @@ type Props = {
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
-export default function Finished({ totals, rounds, byIdle, nameOf, me, onRestart }: Props) {
+export default function Finished({ totals, results, rounds, byIdle, nameOf, me, onRestart }: Props) {
+  const awards = computeAwards(results);
   const top = winners(totals);
   const ranking = Object.keys(totals).sort((a, b) => totals[b] - totals[a]);
   const podium = ranking.slice(0, 3);
@@ -60,6 +63,34 @@ export default function Finished({ totals, rounds, byIdle, nameOf, me, onRestart
             </li>
           ))}
         </ol>
+      )}
+
+      {awards.length > 0 && (
+        <div className="flex w-full flex-col gap-3 text-left">
+          <h3 className="text-center font-display text-2xl font-extrabold tracking-tight">Los premios de la partida</h3>
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {awards.map((a) => (
+              <li key={a.key} className="flex gap-3 rounded-2xl border border-line bg-card p-4">
+                <span className="text-3xl leading-none" aria-hidden>
+                  {a.emoji}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted">{a.title}</p>
+                  <p className="break-words font-display text-xl font-extrabold">{a.value}</p>
+                  {(a.detail || a.playerIds.length > 0) && (
+                    <p className="text-sm text-muted">
+                      {a.detail}
+                      {a.detail && a.playerIds.length > 0 && " "}
+                      {a.playerIds.length > 0 && (
+                        <span className="font-semibold text-ink">{a.playerIds.map(nameOf).join(", ")}</span>
+                      )}
+                    </p>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       <button

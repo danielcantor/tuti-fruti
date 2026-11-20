@@ -277,6 +277,7 @@ function Table({ g }: { g: G }) {
                 ...Object.fromEntries(players.map((p) => [p.id, 0])),
                 ...(state?.totals ?? {}),
               }}
+              results={results}
               rounds={results.length}
               byIdle={maxRounds === null}
               nameOf={nameOf}

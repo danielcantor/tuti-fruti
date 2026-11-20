@@ -32,6 +32,12 @@ export type RoundResult = {
   letter: string;
   /** playerId -> categoría -> puntos */
   points: Record<string, Partial<Record<CategoryKey, number>>>;
+  /** Respuestas de la ronda, para el resumen final (no está en partidas viejas). */
+  answers?: Record<string, Answers>;
+  /** Respuestas anuladas, como "playerId|categoria". */
+  invalid?: string[];
+  /** Quién cantó ¡Basta! (null si se cortó por tiempo). */
+  bastaBy?: string | null;
 };
 
 export type Game = {

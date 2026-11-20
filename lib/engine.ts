@@ -242,11 +242,9 @@ export async function act(body: unknown): Promise<void> {
         store.hgetall(K.answers(game.round)),
         store.hgetall(K.invalid(game.round)),
       ]);
-      const points = scoreRound(
-        game.letter ?? "",
-        parseHash<Answers>(answersH),
-        new Set(Object.keys(invalidH)),
-      );
+      const roundAnswers = parseHash<Answers>(answersH);
+      const roundInvalid = Object.keys(invalidH);
+      const points = scoreRound(game.letter ?? "", roundAnswers, new Set(roundInvalid));
       await mutateGame((g, now) => {
         if (derivePhase(g, now) !== "review" || g.round !== game.round) return g;
         return {
@@ -257,7 +255,17 @@ export async function act(body: unknown): Promise<void> {
           bastaBy: null,
           bastaAt: null,
           closedAt: now,
-          results: [...g.results, { round: g.round, letter: g.letter ?? "", points }],
+          results: [
+            ...g.results,
+            {
+              round: g.round,
+              letter: g.letter ?? "",
+              points,
+              answers: roundAnswers,
+              invalid: roundInvalid,
+              bastaBy: g.bastaBy,
+            },
+          ],
         };
       });
       return;

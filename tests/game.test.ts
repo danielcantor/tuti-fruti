@@ -13,6 +13,7 @@ import {
   totals,
   winners,
 } from "@/lib/game";
+import { computeAwards } from "@/lib/awards";
 import { act, getState } from "@/lib/engine";
 import { createMemoryStore, hashFromReply, setStore } from "@/lib/store";
 
@@ -234,5 +235,49 @@ describe("límite de rondas y cortes automáticos", () => {
   it("winners maneja empates y vacío", () => {
     expect(winners({ a: 30, b: 30, c: 10 })).toEqual(["a", "b"]);
     expect(winners({})).toEqual([]);
+  });
+});
+
+describe("computeAwards", () => {
+  it("arma la repetida, la rara, la larga, la corta y los premios por jugador", () => {
+    const e = { nombre: "", serie: "", lugar: "", color: "", marca: "" };
+    const results = [
+      {
+        round: 1,
+        letter: "R",
+        points: {
+          a: { nombre: 5, color: 5, lugar: 10, marca: 0 },
+          b: { nombre: 5, color: 5, serie: 10 },
+        },
+        answers: {
+          a: { ...e, nombre: "Rosa", color: "Rojo", lugar: "Rosario de la Frontera", marca: "Rxyz" },
+          b: { ...e, nombre: "rosa", color: "rojo", serie: "Rick" },
+        },
+        invalid: ["a|marca"],
+        bastaBy: "a",
+      },
+      {
+        round: 2,
+        letter: "R",
+        points: { a: { color: 5 }, b: { color: 5 } },
+        answers: { a: { ...e, color: "Rojo" }, b: { ...e, color: "Rojo" } },
+        invalid: [],
+        bastaBy: null,
+      },
+    ];
+    const aw = Object.fromEntries(computeAwards(results).map((x) => [x.key, x]));
+    expect(aw.common.value).toBe("Rojo");
+    expect(aw.common.detail).toContain("4 veces");
+    expect(aw.rare.value).toBe("Rick"); // k: letra rarísima, dicha una sola vez
+    expect(aw.long.value).toBe("Rosario de la Frontera");
+    expect(aw.short.value).toBe("Rosa");
+    expect(aw.original.playerIds.sort()).toEqual(["a", "b"]);
+    expect(aw.fast.playerIds).toEqual(["a"]);
+    expect(aw.annulled.playerIds).toEqual(["a"]);
+    expect(aw.hard.value).toBeTruthy();
+  });
+
+  it("partidas viejas sin respuestas guardadas no rompen", () => {
+    expect(computeAwards([{ round: 1, letter: "A", points: { a: { nombre: 10 } } }])).toEqual([]);
   });
 });

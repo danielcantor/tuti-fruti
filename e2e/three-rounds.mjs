@@ -54,6 +54,8 @@ await a.getByText("¡Ganó Ana!").waitFor({ timeout: 5000 });
 await b.getByText("¡Ganó Ana!").waitFor({ timeout: 5000 });
 check(true, "los dos ven la pantalla del ganador");
 check((await a.textContent("main")).includes("150"), "Ana suma 150 (3 rondas × 50)");
+check(await a.getByText("Los premios de la partida").isVisible(), "se ven los premios");
+check(await a.getByText("La más larga").isVisible(), "premio a la palabra más larga");
 await a.screenshot({ path: `${OUT}/r-3-ganador-desktop.png` });
 await b.screenshot({ path: `${OUT}/r-3-ganador-mobile.png`, fullPage: true });
 
