@@ -11,7 +11,7 @@ import {
   totals,
 } from "@/lib/game";
 import { act, getState } from "@/lib/engine";
-import { createMemoryStore, setStore } from "@/lib/store";
+import { createMemoryStore, hashFromReply, setStore } from "@/lib/store";
 
 describe("normalize", () => {
   it("saca acentos, mayúsculas y espacios pero conserva la ñ", () => {
@@ -128,5 +128,16 @@ describe("partida completa", () => {
     const same = await getState(A, end.ver);
     expect("same" in same).toBe(true);
     vi.useRealTimers();
+  });
+});
+
+describe("hashFromReply", () => {
+  it("convierte la lista plana de Upstash en objeto", () => {
+    expect(hashFromReply(["id-1", '{"name":"Vale"}', "id-2", '{"name":"Dani"}'])).toEqual({
+      "id-1": '{"name":"Vale"}',
+      "id-2": '{"name":"Dani"}',
+    });
+    expect(hashFromReply(null)).toEqual({});
+    expect(hashFromReply({ a: { name: "x" } })).toEqual({ a: '{"name":"x"}' });
   });
 });

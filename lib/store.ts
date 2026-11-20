@@ -21,6 +21,22 @@ if (cur == false and ARGV[1] == '') or cur == ARGV[1] then
 end
 return 0`;
 
+/** Convierte la respuesta de HGETALL (lista plana u objeto) en un objeto campo → valor. */
+export function hashFromReply(reply: unknown): Record<string, string> {
+  if (!reply) return {};
+  if (Array.isArray(reply)) {
+    const out: Record<string, string> = {};
+    for (let i = 0; i + 1 < reply.length; i += 2) out[String(reply[i])] = String(reply[i + 1]);
+    return out;
+  }
+  if (typeof reply === "object") {
+    return Object.fromEntries(
+      Object.entries(reply as Record<string, unknown>).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)]),
+    );
+  }
+  return {};
+}
+
 class RedisStore implements Store {
   constructor(private r: Redis) {}
   async get(key: string) {
@@ -40,7 +56,8 @@ class RedisStore implements Store {
     await this.r.hdel(key, field);
   }
   async hgetall(key: string) {
-    return ((await this.r.hgetall<Record<string, string>>(key)) ?? {}) as Record<string, string>;
+    // Con automaticDeserialization: false, HGETALL llega como lista plana [campo, valor, ...].
+    return hashFromReply(await this.r.hgetall(key));
   }
   async del(...keys: string[]) {
     if (keys.length) await this.r.del(...keys);
