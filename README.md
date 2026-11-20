@@ -1,7 +1,7 @@
 # Tuti Fruti
 
 Tuti Fruti multijugador para jugar con la oficina: ruleta de letras compartida, cinco categorías
-(Nombre, Serie/Película, Lugar, Color, Marca), botón **¡Basta!** con cuenta regresiva de 10 s,
+(Nombre, Serie/Película, Lugar, Color, Marca), botón **¡Basta!** con cuenta regresiva de 5 s,
 revisión donde cualquiera puede anular respuestas y tabla de puntos acumulada.
 
 Antes de la primera ronda se elige cuántas rondas jugar (3, 5, 10 o sin límite); al terminar

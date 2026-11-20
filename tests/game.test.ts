@@ -298,6 +298,20 @@ describe("computeAwards", () => {
     expect(none.some((x) => x.key === "empty")).toBe(false);
   });
 
+  it("letra más difícil: la ronda con más casilleros en cero", () => {
+    const e = { nombre: "", serie: "", lugar: "", color: "", marca: "" };
+    const all10 = { nombre: 10, serie: 10, lugar: 10, color: 10, marca: 10 };
+    const res = [
+      { round: 1, letter: "A", points: { a: all10 }, answers: { a: { ...e, nombre: "Ana" } } },
+      { round: 2, letter: "Z", points: { a: { nombre: 10 } }, answers: { a: { ...e, nombre: "Zoe" } } },
+    ];
+    const letter = computeAwards(res).find((x) => x.key === "letter")!;
+    expect(letter.value).toBe("Z");
+    expect(letter.detail).toBe("4 de 5 casilleros sin puntos");
+    // Con una sola ronda no hay con qué comparar
+    expect(computeAwards(res.slice(0, 1)).some((x) => x.key === "letter")).toBe(false);
+  });
+
   it("partidas viejas sin respuestas guardadas no rompen", () => {
     expect(computeAwards([{ round: 1, letter: "A", points: { a: { nombre: 10 } } }])).toEqual([]);
   });

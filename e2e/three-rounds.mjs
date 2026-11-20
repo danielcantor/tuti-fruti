@@ -59,6 +59,7 @@ check(true, "los dos ven la pantalla del ganador");
 check((await a.textContent("main")).includes("150"), "Ana suma 150 (3 rondas × 50)");
 check(await a.getByText("Los premios de la partida").isVisible(), "se ven los premios");
 check(await a.getByText("La más larga").isVisible(), "premio a la palabra más larga");
+check(await a.getByText("Letra más difícil").isVisible(), "premio a la letra más difícil");
 check(
   await a.locator("li", { hasText: "Más casilleros vacíos" }).filter({ hasText: "Beto" }).isVisible(),
   "premio a más casilleros vacíos para Beto",

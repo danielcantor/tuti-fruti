@@ -185,6 +185,34 @@ export function computeAwards(results: RoundResult[]): Award[] {
     });
   }
 
+  // Letra más difícil: la ronda con mayor proporción de casilleros sin puntos.
+  const byLetter = results
+    .filter((r) => r.answers && Object.keys(r.answers).length > 0)
+    .map((r) => {
+      let total = 0;
+      let zero = 0;
+      for (const id of Object.keys(r.answers!)) {
+        for (const { key } of CATEGORIES) {
+          total++;
+          if ((r.points[id]?.[key] ?? 0) === 0) zero++;
+        }
+      }
+      return { letter: r.letter, total, zero };
+    });
+  if (byLetter.length >= 2) {
+    const worst = byLetter.reduce((a, b) => (b.zero / b.total > a.zero / a.total ? b : a));
+    if (worst.zero > 0) {
+      awards.push({
+        key: "letter",
+        emoji: "🔤",
+        title: "Letra más difícil",
+        value: worst.letter,
+        detail: `${worst.zero} de ${worst.total} casilleros sin puntos`,
+        playerIds: [],
+      });
+    }
+  }
+
   // Categoría más difícil: la que más quedó en cero.
   const zeros = new Map<string, number>();
   const totalsByCat = new Map<string, number>();

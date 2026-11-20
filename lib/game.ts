@@ -14,7 +14,8 @@ export type CategoryKey = (typeof CATEGORIES)[number]["key"];
 export type Answers = Record<CategoryKey, string>;
 
 export const SPIN_MS = 4500;
-export const STOP_MS = 10000;
+/** Cuenta regresiva después de ¡Basta! para terminar de escribir. */
+export const STOP_MS = 5000;
 /** Margen para que lleguen las últimas respuestas después de la cuenta regresiva. */
 export const GRACE_MS = 3000;
 /** Si nadie canta ¡Basta! en este tiempo, la ronda se corta sola. */
