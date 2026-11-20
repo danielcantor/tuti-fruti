@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AnswerForm from "@/components/AnswerForm";
 import Chat from "@/components/Chat";
 import Finished from "@/components/Finished";
+import Notices from "@/components/Notices";
 import Review from "@/components/Review";
 import Scoreboard from "@/components/Scoreboard";
 import Wheel from "@/components/Wheel";
@@ -204,10 +205,15 @@ function Table({ g }: { g: G }) {
                   )}
                   <p className="max-w-md text-sm text-muted">
                     Cuando gira, la ronda arranca para todos los que están en la sala.
-                    {players.length > 0 && (
+                    {players.some((p) => p.online) && (
                       <>
                         {" "}
-                        En la sala: {players.map((p) => p.name).join(", ")}.
+                        En la sala:{" "}
+                        {players
+                          .filter((p) => p.online)
+                          .map((p) => p.name)
+                          .join(", ")}
+                        .
                       </>
                     )}
                   </p>
@@ -313,6 +319,7 @@ function Table({ g }: { g: G }) {
       </div>
 
       <Chat messages={state?.chat ?? []} me={me} onSend={(text) => send({ type: "chat", text })} />
+      <Notices messages={state?.chat ?? []} me={me} />
 
       {g.error && (
         <div

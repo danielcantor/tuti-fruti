@@ -331,8 +331,9 @@ describe("chat", () => {
     await act({ type: "chat", playerId: A, text: "x".repeat(300) });
     let st = await getState(A, null);
     if ("same" in st) throw new Error();
-    expect(st.chat.map((m) => m.text.length)).toEqual([8, 200]);
-    expect(st.chat[0]).toMatchObject({ text: "hola che", name: "Ana", playerId: A });
+    const typed = st.chat.filter((m) => !m.kind);
+    expect(typed.map((m) => m.text.length)).toEqual([8, 200]);
+    expect(typed[0]).toMatchObject({ text: "hola che", name: "Ana", playerId: A });
 
     for (let i = 0; i < 120; i++) await act({ type: "chat", playerId: A, text: `m${i}` });
     st = await getState(A, null);
@@ -349,7 +350,7 @@ describe("chat", () => {
     await act({ type: "reset", playerId: A });
     const st = await getState(A, null);
     if ("same" in st) throw new Error();
-    expect(st.chat.map((m) => m.text)).toEqual(["¡vamos!"]);
+    expect(st.chat.filter((m) => !m.kind).map((m) => m.text)).toEqual(["¡vamos!"]);
   });
 });
 
@@ -388,5 +389,57 @@ describe("answerProblem", () => {
     const e = { nombre: "", serie: "", lugar: "", color: "", marca: "" };
     const pts = scoreRound("H", { a: { ...e, serie: "h", color: "Hueso" } }, new Set());
     expect(pts.a).toMatchObject({ serie: 0, color: 10 });
+  });
+});
+
+describe("presencia: avisos de entrada y salida", () => {
+  const A = "aaaaaaaa-1111";
+  const B = "bbbbbbbb-2222";
+  beforeEach(() => {
+    setStore(createMemoryStore());
+    vi.useFakeTimers();
+    vi.setSystemTime(5_000_000);
+  });
+  const notices = async () => {
+    const st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    return st.chat.filter((m) => m.kind).map((m) => `${m.name} ${m.kind}`);
+  };
+  const online = async () => {
+    const st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    return Object.fromEntries(st.players.map((p) => [p.name, p.online]));
+  };
+
+  it("avisa al entrar una sola vez, aunque recargue", async () => {
+    await act({ type: "join", playerId: A, name: "Ana" });
+    await act({ type: "join", playerId: B, name: "Beto" });
+    await getState(B, null, true); // latido
+    await act({ type: "join", playerId: B, name: "Beto" }); // recarga
+    expect(await notices()).toEqual(["Ana join", "Beto join"]);
+    expect(await online()).toEqual({ Ana: true, Beto: true });
+  });
+
+  it("avisa que se fue cuando deja de dar señales 30 s", async () => {
+    await act({ type: "join", playerId: A, name: "Ana" });
+    await act({ type: "join", playerId: B, name: "Beto" });
+    for (let t = 0; t < 4; t++) {
+      vi.advanceTimersByTime(10_000);
+      await getState(A, null, true); // Ana sigue, Beto cerró el navegador
+    }
+    expect(await notices()).toEqual(["Ana join", "Beto join", "Beto leave"]);
+    expect(await online()).toEqual({ Ana: true, Beto: false });
+    // Vuelve: aviso de entrada de nuevo
+    await getState(B, null, true);
+    expect((await notices()).at(-1)).toBe("Beto join");
+  });
+
+  it("el botón salir avisa al instante, sin duplicar con el latido", async () => {
+    await act({ type: "join", playerId: A, name: "Ana" });
+    await act({ type: "join", playerId: B, name: "Beto" });
+    await act({ type: "leave", playerId: B });
+    vi.advanceTimersByTime(40_000);
+    await getState(A, null, true);
+    expect(await notices()).toEqual(["Ana join", "Beto join", "Beto leave"]);
   });
 });

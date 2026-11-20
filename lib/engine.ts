@@ -7,6 +7,7 @@ import {
   CATEGORIES,
   CHAT_MAX_LEN,
   GRACE_MS,
+  PRESENCE_TIMEOUT_MS,
   ROUND_OPTIONS,
   STOP_MS,
   derivePhase,
@@ -30,6 +31,8 @@ const K = {
   ver: `${P}ver`,
   players: `${P}players`,
   chat: `${P}chat`,
+  seen: `${P}seen`,
+  present: `${P}present`,
   answers: (round: number) => `${P}answers:${round}`,
   invalid: (round: number) => `${P}invalid:${round}`,
 };
@@ -84,19 +87,61 @@ function parseHash<T>(h: Record<string, string>): Record<string, T> {
   return out;
 }
 
+async function pushNotice(playerId: string, name: string, kind: "join" | "leave") {
+  const msg: ChatMessage = {
+    id: crypto.randomUUID(),
+    playerId,
+    name,
+    text: kind === "join" ? "entró a la sala" : "se fue",
+    at: Date.now(),
+    kind,
+  };
+  await getStore().pushCapped(K.chat, JSON.stringify(msg), CHAT_KEEP);
+}
+
+/**
+ * Latido de un jugador: lo marca conectado (avisando si recién entra) y, de
+ * paso, despide a quienes dejaron de dar señales. HSETNX/HDEL hacen que cada
+ * aviso salga una sola vez aunque varios navegadores lleguen a la vez.
+ */
+export async function heartbeat(playerId: string): Promise<void> {
+  const store = getStore();
+  const now = Date.now();
+  const players = parseHash<{ name: string }>(await store.hgetall(K.players));
+  let changed = false;
+  if (players[playerId]) {
+    await store.hset(K.seen, playerId, String(now));
+    if (await store.hsetnx(K.present, playerId, "1")) {
+      await pushNotice(playerId, players[playerId].name, "join");
+      changed = true;
+    }
+  }
+  const [seen, present] = await Promise.all([store.hgetall(K.seen), store.hgetall(K.present)]);
+  for (const id of Object.keys(present)) {
+    if (now - Number(seen[id] ?? 0) > PRESENCE_TIMEOUT_MS && (await store.hdel(K.present, id))) {
+      await pushNotice(id, players[id]?.name || "Alguien", "leave");
+      changed = true;
+    }
+  }
+  if (changed) await store.incr(K.ver);
+}
+
 export async function getState(
   playerId: string | null,
   knownVer: number | null,
+  beat = false,
 ): Promise<ClientState | { same: true; ver: number; serverNow: number }> {
   const store = getStore();
+  if (beat && playerId && validId(playerId)) await heartbeat(playerId);
   const ver = Number((await store.get(K.ver)) ?? 0);
   const now = Date.now();
   if (knownVer !== null && knownVer === ver) return { same: true, ver, serverNow: now };
 
-  const [{ game }, playersH, chatRaw] = await Promise.all([
+  const [{ game }, playersH, chatRaw, presentH] = await Promise.all([
     readGame(),
     store.hgetall(K.players),
     store.lrange(K.chat, 0, CHAT_SEND - 1),
+    store.hgetall(K.present),
   ]);
   const chat: ChatMessage[] = [];
   for (const raw of chatRaw) {
@@ -109,7 +154,7 @@ export async function getState(
   const phase = derivePhase(game, now);
   const players = Object.entries(parseHash<{ name: string; joinedAt: number }>(playersH))
     .sort((a, b) => a[1].joinedAt - b[1].joinedAt)
-    .map(([id, p]) => ({ id, name: p.name }));
+    .map(([id, p]) => ({ id, name: p.name, online: !!presentH[id] }));
 
   let answers: Record<string, Answers> = {};
   let invalid: string[] = [];
@@ -173,11 +218,14 @@ export async function act(body: unknown): Promise<void> {
         JSON.stringify({ name, joinedAt: existing?.joinedAt ?? Date.now() }),
       );
       await store.incr(K.ver);
+      await heartbeat(a.playerId);
       return;
     }
 
     case "leave": {
+      const p = parseHash<{ name: string }>(await store.hgetall(K.players))[a.playerId];
       await store.hdel(K.players, a.playerId);
+      if (p && (await store.hdel(K.present, a.playerId))) await pushNotice(a.playerId, p.name, "leave");
       await store.incr(K.ver);
       return;
     }

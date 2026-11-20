@@ -5,7 +5,11 @@ export async function GET(req: Request) {
   const pid = url.searchParams.get("pid");
   const v = url.searchParams.get("v");
   try {
-    const state = await getState(pid, v === null || v === "" ? null : Number(v));
+    const state = await getState(
+      pid,
+      v === null || v === "" ? null : Number(v),
+      url.searchParams.get("hb") === "1",
+    );
     return Response.json(state, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     console.error(e);

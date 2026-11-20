@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type ClientState, type Phase, derivePhase, initialGame } from "./game";
+import { type ClientState, HEARTBEAT_MS, type Phase, derivePhase, initialGame } from "./game";
 
 const PID_KEY = "tf:pid";
 const NAME_KEY = "tf:name";
@@ -34,6 +34,7 @@ export function useGame() {
   const verRef = useRef<number | null>(null);
   const phaseRef = useRef<Phase | null>(null);
   const forceFull = useRef(true);
+  const lastBeat = useRef(0);
   const nameRef = useRef<string | null>(null);
   useEffect(() => {
     nameRef.current = name;
@@ -58,7 +59,10 @@ export function useGame() {
     if (!pid) return;
     const v = forceFull.current || verRef.current === null ? "" : String(verRef.current);
     try {
-      const res = await fetch(`/api/state?pid=${pid}&v=${v}`, { cache: "no-store" });
+      // Cada HEARTBEAT_MS la consulta también avisa "sigo acá".
+      const beat = Date.now() - lastBeat.current >= HEARTBEAT_MS;
+      if (beat) lastBeat.current = Date.now();
+      const res = await fetch(`/api/state?pid=${pid}&v=${v}${beat ? "&hb=1" : ""}`, { cache: "no-store" });
       if (!res.ok) throw new Error();
       const data = (await res.json()) as ClientState | { same: true; ver: number; serverNow: number };
       offset.current = data.serverNow - Date.now();

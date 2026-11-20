@@ -3,7 +3,7 @@
 import type { RoundResult } from "@/lib/game";
 
 type Props = {
-  players: { id: string; name: string }[];
+  players: { id: string; name: string; online: boolean }[];
   totals: Record<string, number>;
   results: RoundResult[];
   nameOf: (id: string) => string;
@@ -30,13 +30,18 @@ export default function Scoreboard({ players, totals, results, nameOf, me, onRes
         {ids.length === 0 && <li className="text-sm text-muted">Todavía no entró nadie.</li>}
         {ids.map((id, i) => {
           const pts = totals[id] ?? 0;
+          const online = players.find((p) => p.id === id)?.online ?? false;
           return (
             <li
               key={id}
               className={`flex items-center gap-3 rounded-xl px-3 py-2 ${id === me ? "bg-accent-soft" : ""}`}
             >
               <span className="w-5 text-right text-sm tabular-nums text-muted">{i + 1}</span>
-              <span className="flex-1 truncate font-medium">
+              <span
+                title={online ? "Conectado" : "Desconectado"}
+                className={`h-2 w-2 shrink-0 rounded-full ${online ? "bg-ok" : "bg-line"}`}
+              />
+              <span className={`flex-1 truncate font-medium ${online ? "" : "text-muted"}`}>
                 {nameOf(id)}
                 {top !== null && pts === top && " 👑"}
               </span>

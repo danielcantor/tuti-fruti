@@ -7,7 +7,10 @@ export interface Store {
   cas(key: string, expected: string | null, next: string): Promise<boolean>;
   incr(key: string): Promise<number>;
   hset(key: string, field: string, value: string): Promise<void>;
-  hdel(key: string, field: string): Promise<void>;
+  /** Devuelve cuántos campos borró (0 o 1). */
+  hdel(key: string, field: string): Promise<number>;
+  /** Escribe solo si el campo no existe; devuelve true si lo escribió. */
+  hsetnx(key: string, field: string, value: string): Promise<boolean>;
   hgetall(key: string): Promise<Record<string, string>>;
   del(...keys: string[]): Promise<void>;
   keys(pattern: string): Promise<string[]>;
@@ -56,7 +59,10 @@ class RedisStore implements Store {
     await this.r.hset(key, { [field]: value });
   }
   async hdel(key: string, field: string) {
-    await this.r.hdel(key, field);
+    return Number(await this.r.hdel(key, field));
+  }
+  async hsetnx(key: string, field: string, value: string) {
+    return Number(await this.r.hsetnx(key, field, value)) === 1;
   }
   async hgetall(key: string) {
     // Con automaticDeserialization: false, HGETALL llega como lista plana [campo, valor, ...].
@@ -109,7 +115,14 @@ class MemoryStore implements Store {
     this.h.get(key)!.set(field, value);
   }
   async hdel(key: string, field: string) {
-    this.h.get(key)?.delete(field);
+    return this.h.get(key)?.delete(field) ? 1 : 0;
+  }
+  async hsetnx(key: string, field: string, value: string) {
+    if (!this.h.has(key)) this.h.set(key, new Map());
+    const m = this.h.get(key)!;
+    if (m.has(field)) return false;
+    m.set(field, value);
+    return true;
   }
   async hgetall(key: string) {
     return Object.fromEntries(this.h.get(key) ?? []);

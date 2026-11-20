@@ -67,7 +67,8 @@ export default function Chat({ messages, me, onSend }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
-  const unread = seen === null ? 0 : messages.filter((m) => m.playerId !== me && m.at > seen).length;
+  const unread =
+    seen === null ? 0 : messages.filter((m) => !m.kind && m.playerId !== me && m.at > seen).length;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,6 +106,14 @@ export default function Chat({ messages, me, onSend }: Props) {
               <li className="m-auto text-center text-sm text-muted">Todavía no hay mensajes. ¡Saludá!</li>
             )}
             {messages.map((m) => {
+              if (m.kind) {
+                return (
+                  <li key={m.id} className="self-center py-1 text-center text-xs text-muted">
+                    {m.kind === "join" ? "👋" : "🚪"} <strong className="font-semibold">{m.name}</strong> {m.text} ·{" "}
+                    {time(m.at)}
+                  </li>
+                );
+              }
               const mine = m.playerId === me;
               return (
                 <li key={m.id} className={`flex max-w-[85%] flex-col ${mine ? "items-end self-end" : "items-start"}`}>

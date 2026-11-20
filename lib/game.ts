@@ -236,16 +236,22 @@ export type ChatMessage = {
   name: string;
   text: string;
   at: number;
+  /** Aviso automático (alguien entró o se fue) en lugar de un mensaje escrito. */
+  kind?: "join" | "leave";
 };
 
 export const CHAT_MAX_LEN = 200;
+/** Cada cuánto el navegador avisa que sigue conectado. */
+export const HEARTBEAT_MS = 10_000;
+/** Sin señales por este tiempo, se considera que la persona se fue. */
+export const PRESENCE_TIMEOUT_MS = 30_000;
 
 /** Estado que recibe el navegador. */
 export type ClientState = {
   ver: number;
   serverNow: number;
   game: Omit<Game, "results"> & { phase: Phase };
-  players: { id: string; name: string }[];
+  players: { id: string; name: string; online: boolean }[];
   /** En revisión: las de todos. Antes: solo las del que pregunta. */
   answers: Record<string, Answers>;
   invalid: string[];
