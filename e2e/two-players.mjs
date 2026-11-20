@@ -22,7 +22,7 @@ async function join(page, name) {
   await page.goto(URL);
   await page.getByPlaceholder("Tu nombre").fill(name);
   await page.getByRole("button", { name: "Entrar a jugar" }).click();
-  await page.getByRole("button", { name: "Girar la ruleta" }).waitFor();
+  await page.getByText("Jugás como").waitFor();
 }
 
 await join(a, "Ana");

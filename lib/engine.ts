@@ -16,6 +16,7 @@ import {
   invalidKey,
   isComplete,
   pickLetter,
+  roomRoles,
   sanitizeAnswers,
   scoreRound,
   totals,
@@ -126,6 +127,24 @@ export async function heartbeat(playerId: string): Promise<void> {
   if (changed) await store.incr(K.ver);
 }
 
+/** Jugadores con hora de llegada y conexión, y los roles de la sala. */
+async function loadRoom(game?: Game) {
+  const store = getStore();
+  const [playersH, presentH, g] = await Promise.all([
+    store.hgetall(K.players),
+    store.hgetall(K.present),
+    game ? Promise.resolve(game) : readGame().then((r) => r.game),
+  ]);
+  const info = parseHash<{ name: string; joinedAt: number }>(playersH);
+  const players = Object.entries(info).map(([id, p]) => ({
+    id,
+    name: p.name,
+    joinedAt: p.joinedAt ?? 0,
+    online: !!presentH[id],
+  }));
+  return { players, ...roomRoles(players, g.lastSpinner) };
+}
+
 export async function getState(
   playerId: string | null,
   knownVer: number | null,
@@ -137,12 +156,8 @@ export async function getState(
   const now = Date.now();
   if (knownVer !== null && knownVer === ver) return { same: true, ver, serverNow: now };
 
-  const [{ game }, playersH, chatRaw, presentH] = await Promise.all([
-    readGame(),
-    store.hgetall(K.players),
-    store.lrange(K.chat, 0, CHAT_SEND - 1),
-    store.hgetall(K.present),
-  ]);
+  const [{ game }, chatRaw] = await Promise.all([readGame(), store.lrange(K.chat, 0, CHAT_SEND - 1)]);
+  const room = await loadRoom(game);
   const chat: ChatMessage[] = [];
   for (const raw of chatRaw) {
     try {
@@ -152,9 +167,9 @@ export async function getState(
     }
   }
   const phase = derivePhase(game, now);
-  const players = Object.entries(parseHash<{ name: string; joinedAt: number }>(playersH))
-    .sort((a, b) => a[1].joinedAt - b[1].joinedAt)
-    .map(([id, p]) => ({ id, name: p.name, online: !!presentH[id] }));
+  const players = [...room.players]
+    .sort((a, b) => a.joinedAt - b.joinedAt)
+    .map(({ id, name, online }) => ({ id, name, online }));
 
   let answers: Record<string, Answers> = {};
   let invalid: string[] = [];
@@ -176,6 +191,8 @@ export async function getState(
     serverNow: now,
     game: { ...rest, phase },
     players,
+    ownerId: room.ownerId,
+    turnId: room.turnId,
     answers,
     invalid,
     results,
@@ -201,6 +218,14 @@ export async function act(body: unknown): Promise<void> {
   const a = body as Action;
   if (!a || typeof a !== "object" || !validId(a.playerId)) throw new GameError("Pedido inválido", 400);
   const store = getStore();
+
+  const requireOwner = async (what: string) => {
+    const room = await loadRoom();
+    if (room.ownerId !== a.playerId) {
+      const owner = room.players.find((p) => p.id === room.ownerId)?.name ?? "el dueño";
+      throw new GameError(`Solo ${owner}, el dueño de la sala, puede ${what}`, 403);
+    }
+  };
 
   const requirePlayer = async () => {
     const p = await store.hgetall(K.players);
@@ -232,6 +257,13 @@ export async function act(body: unknown): Promise<void> {
 
     case "spin": {
       await requirePlayer();
+      const room = await loadRoom();
+      // Gira a quien le toca; el dueño puede girar por esa persona si se colgó.
+      if (room.turnId && a.playerId !== room.turnId && a.playerId !== room.ownerId) {
+        const who = room.players.find((p) => p.id === room.turnId)?.name ?? "otra persona";
+        throw new GameError(`Le toca girar a ${who}`, 403);
+      }
+      const spinner = room.turnId ?? a.playerId;
       await mutateGame((g, now) => {
         const phase = derivePhase(g, now);
         if (phase === "finished") throw new GameError("La partida terminó. Empezá una nueva.");
@@ -246,6 +278,7 @@ export async function act(body: unknown): Promise<void> {
           spinAt: now + 400,
           bastaBy: null,
           bastaAt: null,
+          lastSpinner: spinner,
         };
       });
       return;
@@ -253,6 +286,7 @@ export async function act(body: unknown): Promise<void> {
 
     case "setMaxRounds": {
       await requirePlayer();
+      await requireOwner("elegir la cantidad de rondas");
       const value = a.value === null ? null : Number(a.value);
       if (!ROUND_OPTIONS.includes(value)) throw new GameError("Cantidad de rondas inválida", 400);
       await mutateGame((g, now) => {
@@ -309,6 +343,7 @@ export async function act(body: unknown): Promise<void> {
 
     case "closeRound": {
       await requirePlayer();
+      await requireOwner("sumar los puntos y cerrar la ronda");
       const { game } = await readGame();
       const [answersH, invalidH] = await Promise.all([
         store.hgetall(K.answers(game.round)),
@@ -345,6 +380,7 @@ export async function act(body: unknown): Promise<void> {
 
     case "reset": {
       await requirePlayer();
+      await requireOwner("empezar una partida nueva");
       const keys = (await store.keys(`${P}answers:*`)).concat(await store.keys(`${P}invalid:*`));
       await store.del(...keys);
       await mutateGame((g) => ({ ...initialGame(), maxRounds: g.maxRounds ?? null }));

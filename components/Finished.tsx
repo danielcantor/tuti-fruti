@@ -11,11 +11,23 @@ type Props = {
   nameOf: (id: string) => string;
   me: string;
   onRestart: () => void;
+  isOwner: boolean;
+  ownerName: string;
 };
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
-export default function Finished({ totals, results, rounds, byIdle, nameOf, me, onRestart }: Props) {
+export default function Finished({
+  totals,
+  results,
+  rounds,
+  byIdle,
+  nameOf,
+  me,
+  onRestart,
+  isOwner,
+  ownerName,
+}: Props) {
   const awards = computeAwards(results);
   const top = winners(totals);
   const ranking = Object.keys(totals).sort((a, b) => totals[b] - totals[a]);
@@ -93,13 +105,17 @@ export default function Finished({ totals, results, rounds, byIdle, nameOf, me, 
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={onRestart}
-        className="rounded-2xl bg-accent px-8 py-4 font-display text-2xl font-extrabold text-accent-ink shadow-[0_6px_0_0_rgba(0,0,0,0.18)] transition active:translate-y-1 active:shadow-none"
-      >
-        Jugar otra partida
-      </button>
+      {isOwner ? (
+        <button
+          type="button"
+          onClick={onRestart}
+          className="rounded-2xl bg-accent px-8 py-4 font-display text-2xl font-extrabold text-accent-ink shadow-[0_6px_0_0_rgba(0,0,0,0.18)] transition active:translate-y-1 active:shadow-none"
+        >
+          Jugar otra partida
+        </button>
+      ) : (
+        <p className="text-muted">Esperando que {ownerName} empiece otra partida…</p>
+      )}
     </section>
   );
 }

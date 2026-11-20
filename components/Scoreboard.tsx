@@ -9,10 +9,22 @@ type Props = {
   nameOf: (id: string) => string;
   me: string;
   onReset: () => void;
+  ownerId: string | null;
+  turnId: string | null;
   onLeave: () => void;
 };
 
-export default function Scoreboard({ players, totals, results, nameOf, me, onReset, onLeave }: Props) {
+export default function Scoreboard({
+  players,
+  totals,
+  results,
+  nameOf,
+  me,
+  onReset,
+  onLeave,
+  ownerId,
+  turnId,
+}: Props) {
   const ids = Array.from(new Set([...players.map((p) => p.id), ...Object.keys(totals)]));
   ids.sort((a, b) => (totals[b] ?? 0) - (totals[a] ?? 0));
   const top = ids.length && (totals[ids[0]] ?? 0) > 0 ? totals[ids[0]] : null;
@@ -44,6 +56,16 @@ export default function Scoreboard({ players, totals, results, nameOf, me, onRes
               <span className={`flex-1 truncate font-medium ${online ? "" : "text-muted"}`}>
                 {nameOf(id)}
                 {top !== null && pts === top && " 👑"}
+                {id === ownerId && (
+                  <span title="Dueño de la sala" className="ml-1.5 rounded bg-ink px-1 py-px align-middle text-[0.65rem] font-semibold text-paper">
+                    dueño
+                  </span>
+                )}
+                {id === turnId && (
+                  <span title="Le toca girar la ruleta" className="ml-1 align-middle text-xs" aria-label="le toca girar">
+                    🎡
+                  </span>
+                )}
               </span>
               <span className="font-display text-lg font-extrabold tabular-nums">{pts}</span>
             </li>
@@ -65,15 +87,17 @@ export default function Scoreboard({ players, totals, results, nameOf, me, onRes
       )}
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-line pt-4 text-sm">
-        <button
-          type="button"
-          onClick={() => {
-            if (confirm("¿Empezar una partida nueva? Se borran todos los puntos.")) onReset();
-          }}
-          className="text-muted underline-offset-4 hover:text-ink hover:underline"
-        >
-          Nueva partida
-        </button>
+        {ownerId === me && (
+          <button
+            type="button"
+            onClick={() => {
+              if (confirm("¿Empezar una partida nueva? Se borran todos los puntos.")) onReset();
+            }}
+            className="text-muted underline-offset-4 hover:text-ink hover:underline"
+          >
+            Nueva partida
+          </button>
+        )}
         <button type="button" onClick={onLeave} className="text-muted underline-offset-4 hover:text-ink hover:underline">
           Cambiar nombre / salir
         </button>

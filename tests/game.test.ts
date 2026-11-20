@@ -6,6 +6,7 @@ import {
   STOP_MS,
   answerProblem,
   derivePhase,
+  roomRoles,
   initialGame,
   invalidKey,
   normalize,
@@ -124,7 +125,8 @@ describe("partida completa", () => {
     expect(rev.preview![A]).toMatchObject({ nombre: 5, color: 10 });
 
     await act({ type: "toggleInvalid", playerId: B, target: A, cat: "color" });
-    await act({ type: "closeRound", playerId: B });
+    await expect(act({ type: "closeRound", playerId: B })).rejects.toThrow("dueño");
+    await act({ type: "closeRound", playerId: A });
     const end = await getState(A, null);
     if ("same" in end) throw new Error();
     expect(end.game.phase).toBe("lobby");
@@ -170,14 +172,15 @@ describe("límite de rondas y cortes automáticos", () => {
     vi.advanceTimersByTime(400 + SPIN_MS);
     await act({ type: "basta", playerId: A, answers: await full(A) });
     vi.advanceTimersByTime(STOP_MS);
-    await act({ type: "closeRound", playerId: B });
+    await act({ type: "closeRound", playerId: A });
   }
 
   it("partida a 3 rondas termina sola y no deja girar más", async () => {
     await act({ type: "join", playerId: A, name: "Ana" });
     await act({ type: "join", playerId: B, name: "Beto" });
     await expect(act({ type: "setMaxRounds", playerId: A, value: 4 })).rejects.toThrow();
-    await act({ type: "setMaxRounds", playerId: B, value: 3 });
+    await expect(act({ type: "setMaxRounds", playerId: B, value: 3 })).rejects.toThrow("dueño");
+    await act({ type: "setMaxRounds", playerId: A, value: 3 });
     await playRound();
     await expect(act({ type: "setMaxRounds", playerId: A, value: 5 })).rejects.toThrow();
     await playRound();
@@ -441,5 +444,79 @@ describe("presencia: avisos de entrada y salida", () => {
     vi.advanceTimersByTime(40_000);
     await getState(A, null, true);
     expect(await notices()).toEqual(["Ana join", "Beto join", "Beto leave"]);
+  });
+});
+
+describe("dueño de la sala y turnos de la ruleta", () => {
+  const A = "aaaaaaaa-1111";
+  const B = "bbbbbbbb-2222";
+  const C = "cccccccc-3333";
+  beforeEach(() => {
+    setStore(createMemoryStore());
+    vi.useFakeTimers();
+    vi.setSystemTime(7_000_000);
+  });
+  const roles = async () => {
+    const st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    return { owner: st.ownerId, turn: st.turnId, phase: st.game.phase };
+  };
+  async function round(spinner: string) {
+    await act({ type: "spin", playerId: spinner });
+    vi.advanceTimersByTime(400 + SPIN_MS + ROUND_MS + STOP_MS); // se corta solo
+    await act({ type: "closeRound", playerId: (await roles()).owner! });
+  }
+
+  it("roomRoles: dueño = primero conectado; turno rota salteando desconectados", () => {
+    const ps = [
+      { id: "a", joinedAt: 1, online: true },
+      { id: "b", joinedAt: 2, online: false },
+      { id: "c", joinedAt: 3, online: true },
+    ];
+    expect(roomRoles(ps, null)).toEqual({ ownerId: "a", turnId: "a" });
+    expect(roomRoles(ps, "a")).toEqual({ ownerId: "a", turnId: "c" });
+    expect(roomRoles(ps, "c")).toEqual({ ownerId: "a", turnId: "a" });
+    ps[0].online = false;
+    expect(roomRoles(ps, null)).toEqual({ ownerId: "c", turnId: "c" });
+  });
+
+  it("el turno pasa entre todos en orden de llegada", async () => {
+    vi.setSystemTime(7_000_001);
+    await act({ type: "join", playerId: A, name: "Ana" });
+    vi.setSystemTime(7_000_002);
+    await act({ type: "join", playerId: B, name: "Beto" });
+    vi.setSystemTime(7_000_003);
+    await act({ type: "join", playerId: C, name: "Caro" });
+    expect(await roles()).toMatchObject({ owner: A, turn: A });
+    await expect(act({ type: "spin", playerId: B })).rejects.toThrow("Le toca girar a Ana");
+    // mantener a todos conectados durante las rondas largas
+    const beatAll = async () => {
+      for (const id of [A, B, C]) await getState(id, null, true);
+    };
+    await round(A);
+    await beatAll();
+    expect((await roles()).turn).toBe(B);
+    await round(B);
+    await beatAll();
+    expect((await roles()).turn).toBe(C);
+    await round(A); // el dueño puede girar por Caro
+    await beatAll();
+    expect((await roles()).turn).toBe(A); // y el turno sigue como si hubiera girado Caro
+  });
+
+  it("si el dueño se va manda el siguiente, y al volver lo recupera", async () => {
+    await act({ type: "join", playerId: A, name: "Ana" });
+    vi.advanceTimersByTime(1);
+    await act({ type: "join", playerId: B, name: "Beto" });
+    for (let t = 0; t < 4; t++) {
+      vi.advanceTimersByTime(10_000);
+      await getState(B, null, true); // Ana dejó de dar señales
+    }
+    expect((await roles()).owner).toBe(B);
+    await act({ type: "setMaxRounds", playerId: B, value: 5 });
+    await getState(A, null, true); // Ana vuelve
+    expect((await roles()).owner).toBe(A);
+    await expect(act({ type: "reset", playerId: B })).rejects.toThrow("dueño");
+    await act({ type: "reset", playerId: A });
   });
 });

@@ -11,12 +11,25 @@ type Props = {
   me: string;
   onToggle: (target: string, cat: CategoryKey) => void;
   onClose: () => void;
+  isOwner: boolean;
+  ownerName: string;
 };
 
 const badge = (p: number) =>
   p === 10 ? "bg-ok/15 text-ok" : p === 5 ? "bg-accent-soft text-ink" : "bg-line text-muted";
 
-export default function Review({ letter, answers, invalid, preview, nameOf, me, onToggle, onClose }: Props) {
+export default function Review({
+  letter,
+  answers,
+  invalid,
+  preview,
+  nameOf,
+  me,
+  onToggle,
+  onClose,
+  isOwner,
+  ownerName,
+}: Props) {
   const ids = Object.keys(answers);
   const inv = new Set(invalid);
   const sum = (id: string) => Object.values(preview[id] ?? {}).reduce((a, b) => a + (b ?? 0), 0);
@@ -91,13 +104,17 @@ export default function Review({ letter, answers, invalid, preview, nameOf, me, 
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={onClose}
-        className="self-start rounded-2xl bg-ink px-6 py-3 font-semibold text-paper transition hover:opacity-90 active:translate-y-px"
-      >
-        Sumar puntos y volver a la ruleta
-      </button>
+      {isOwner ? (
+        <button
+          type="button"
+          onClick={onClose}
+          className="self-start rounded-2xl bg-ink px-6 py-3 font-semibold text-paper transition hover:opacity-90 active:translate-y-px"
+        >
+          Sumar puntos y volver a la ruleta
+        </button>
+      ) : (
+        <p className="text-sm text-muted">Esperando que {ownerName} sume los puntos y vuelva a la ruleta…</p>
+      )}
     </section>
   );
 }

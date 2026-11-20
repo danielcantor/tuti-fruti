@@ -54,6 +54,8 @@ export type Game = {
   maxRounds?: number | null;
   /** Hora en que se cerró la última ronda. */
   closedAt?: number | null;
+  /** Quién tenía el turno en el último giro (para pasarle el turno al siguiente). */
+  lastSpinner?: string | null;
 };
 
 export const initialGame = (): Game => ({
@@ -67,7 +69,31 @@ export const initialGame = (): Game => ({
   results: [],
   maxRounds: null,
   closedAt: null,
+  lastSpinner: null,
 });
+
+export type RoomPlayer = { id: string; joinedAt: number; online: boolean };
+
+/**
+ * Dueño: el que llegó primero entre los conectados (si se va manda el
+ * siguiente, y al volver recupera el control). Turno de girar: el próximo
+ * conectado, en orden de llegada, después de quien giró la última vez.
+ */
+export function roomRoles(
+  players: RoomPlayer[],
+  lastSpinner: string | null | undefined,
+): { ownerId: string | null; turnId: string | null } {
+  const order = [...players].sort((a, b) => a.joinedAt - b.joinedAt || a.id.localeCompare(b.id));
+  const online = order.filter((p) => p.online);
+  const ownerId = online[0]?.id ?? order[0]?.id ?? null;
+  if (online.length === 0) return { ownerId, turnId: null };
+  const start = order.findIndex((p) => p.id === lastSpinner);
+  for (let k = 1; k <= order.length; k++) {
+    const p = order[(start + k + order.length) % order.length];
+    if (p.online) return { ownerId, turnId: p.id };
+  }
+  return { ownerId, turnId: online[0].id };
+}
 
 export const emptyAnswers = (): Answers => ({
   nombre: "",
@@ -252,6 +278,10 @@ export type ClientState = {
   serverNow: number;
   game: Omit<Game, "results"> & { phase: Phase };
   players: { id: string; name: string; online: boolean }[];
+  /** Dueño actual de la sala. */
+  ownerId: string | null;
+  /** A quién le toca girar la ruleta. */
+  turnId: string | null;
   /** En revisión: las de todos. Antes: solo las del que pregunta. */
   answers: Record<string, Answers>;
   invalid: string[];

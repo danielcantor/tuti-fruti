@@ -22,18 +22,25 @@ async function join(page, name) {
   await page.goto(URL);
   await page.getByPlaceholder("Tu nombre").fill(name);
   await page.getByRole("button", { name: "Entrar a jugar" }).click();
-  await page.getByRole("button", { name: "Girar la ruleta" }).waitFor();
+  await page.getByText("Jugás como").waitFor();
 }
 
 await join(a, "Ana");
 await join(b, "Beto");
+check(await b.getByText("Le toca girar a Ana").isVisible(), "Beto ve que le toca girar a Ana");
+check(await a.getByText("dueño de la sala").isVisible(), "Ana es la dueña de la sala");
+check(await b.getByRole("radio", { name: "3 rondas" }).isDisabled(), "Beto no puede elegir las rondas");
 await a.getByRole("radio", { name: "3 rondas" }).click();
 await sleep(1500);
 check((await b.getByRole("radio", { name: "3 rondas" }).getAttribute("aria-checked")) === "true", "Beto ve elegidas 3 rondas");
 await a.screenshot({ path: `${OUT}/r-1-selector.png` });
 
 for (let r = 1; r <= 3; r++) {
-  await a.getByRole("button", { name: "Girar la ruleta" }).click();
+  // El turno rota: Ana, Beto, Ana
+  const spinner = r % 2 === 1 ? a : b;
+  await spinner.getByText(r === 1 ? "Girar la ruleta" : "¡Te toca girar!").first().waitFor({ timeout: 5000 });
+  check(true, `ronda ${r}: le toca girar a ${r % 2 === 1 ? "Ana" : "Beto"}`);
+  await spinner.getByRole("button", { name: "Girar la ruleta" }).click();
   await sleep(5500);
   const L = (await a.locator(".animate-pop").textContent()).trim();
   check((await a.textContent("header")).includes(`Ronda ${r} de 3`), `encabezado "Ronda ${r} de 3"`);
@@ -49,7 +56,8 @@ for (let r = 1; r <= 3; r++) {
   await a.getByRole("button", { name: "¡Basta!", exact: true }).click();
   await a.getByText(`Revisión de la letra ${L}`).waitFor({ timeout: 15000 });
   await sleep(800);
-  await b.getByRole("button", { name: "Sumar puntos y volver a la ruleta" }).click();
+  if (r === 1) check(await b.getByText("Esperando que Ana sume los puntos").isVisible(), "Beto espera a la dueña para sumar");
+  await a.getByRole("button", { name: "Sumar puntos y volver a la ruleta" }).click();
   await sleep(1500);
 }
 
@@ -67,7 +75,8 @@ check(
 await a.screenshot({ path: `${OUT}/r-3-ganador-desktop.png` });
 await b.screenshot({ path: `${OUT}/r-3-ganador-mobile.png`, fullPage: true });
 
-await b.getByRole("button", { name: "Jugar otra partida" }).click();
+check(await b.getByText("Esperando que Ana empiece otra partida").isVisible(), "solo la dueña reinicia");
+await a.getByRole("button", { name: "Jugar otra partida" }).click();
 await a.getByRole("button", { name: "Girar la ruleta" }).waitFor({ timeout: 5000 });
 check(true, "\"Jugar otra partida\" vuelve a la ruleta");
 

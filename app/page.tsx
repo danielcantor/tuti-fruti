@@ -128,6 +128,11 @@ function Table({ g }: { g: G }) {
   const deadline = roundDeadline(game);
   const left = deadline ? Math.max(0, Math.ceil((deadline - now) / 1000)) : 0;
   const results = state?.results ?? [];
+  const ownerId = state?.ownerId ?? null;
+  const turnId = state?.turnId ?? null;
+  const isOwner = ownerId === me;
+  const myTurn = turnId === null || turnId === me;
+  const ownerName = ownerId ? nameOf(ownerId) : "el dueño";
   const maxRounds = game.maxRounds ?? null;
   const started = results.length > 0;
 
@@ -144,6 +149,7 @@ function Table({ g }: { g: G }) {
           )}
           <div>
             Jugás como <span className="font-semibold text-ink">{g.name}</span>
+            {isOwner && <span className="ml-1 rounded-md bg-ink px-1.5 py-0.5 text-xs font-semibold text-paper">dueño de la sala</span>}
           </div>
         </div>
       </header>
@@ -168,15 +174,38 @@ function Table({ g }: { g: G }) {
                 <p className="font-display text-2xl font-extrabold">Girando…</p>
               ) : (
                 <>
-                  <button
-                    onClick={() => send({ type: "spin" })}
-                    className="rounded-2xl bg-accent px-8 py-4 font-display text-2xl font-extrabold text-accent-ink shadow-[0_6px_0_0_rgba(0,0,0,0.18)] transition active:translate-y-1 active:shadow-none"
-                  >
-                    Girar la ruleta
-                  </button>
+                  {myTurn ? (
+                    <div className="flex flex-col items-center gap-2">
+                      {turnId === me && players.filter((p) => p.online).length > 1 && (
+                        <p className="font-display text-xl font-extrabold text-accent">¡Te toca girar!</p>
+                      )}
+                      <button
+                        onClick={() => send({ type: "spin" })}
+                        className="rounded-2xl bg-accent px-8 py-4 font-display text-2xl font-extrabold text-accent-ink shadow-[0_6px_0_0_rgba(0,0,0,0.18)] transition active:translate-y-1 active:shadow-none"
+                      >
+                        Girar la ruleta
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-2">
+                      <p className="font-display text-2xl font-extrabold">
+                        Le toca girar a <span className="text-accent">{nameOf(turnId!)}</span>
+                      </p>
+                      {isOwner && (
+                        <button
+                          onClick={() => send({ type: "spin" })}
+                          className="rounded-xl border border-line bg-card px-4 py-2 text-sm font-semibold hover:border-ink"
+                        >
+                          Girar por {nameOf(turnId!)}
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {!started ? (
                     <div className="flex flex-col items-center gap-2">
-                      <span className="text-sm font-medium">¿Cuántas rondas?</span>
+                      <span className="text-sm font-medium">
+                        ¿Cuántas rondas?{!isOwner && <span className="text-muted"> · lo elige {ownerName}</span>}
+                      </span>
                       <div role="radiogroup" aria-label="Cantidad de rondas" className="flex flex-wrap justify-center gap-2">
                         {ROUND_OPTIONS.map((opt) => {
                           const active = opt === maxRounds;
@@ -185,10 +214,11 @@ function Table({ g }: { g: G }) {
                               key={String(opt)}
                               role="radio"
                               aria-checked={active}
+                              disabled={!isOwner}
                               onClick={() => !active && send({ type: "setMaxRounds", value: opt })}
-                              className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${
-                                active ? "border-ink bg-ink text-paper" : "border-line bg-card hover:border-ink"
-                              }`}
+                              className={`rounded-xl border px-4 py-2 text-sm font-semibold transition disabled:cursor-default ${
+                                active ? "border-ink bg-ink text-paper" : "border-line bg-card enabled:hover:border-ink"
+                              } ${!isOwner && !active ? "opacity-50" : ""}`}
                             >
                               {opt === null ? "Sin límite" : `${opt} rondas`}
                             </button>
@@ -290,6 +320,8 @@ function Table({ g }: { g: G }) {
               nameOf={nameOf}
               me={me}
               onRestart={() => send({ type: "reset" })}
+              isOwner={isOwner}
+              ownerName={ownerName}
             />
           )}
 
@@ -303,6 +335,8 @@ function Table({ g }: { g: G }) {
               me={me}
               onToggle={(target, cat) => send({ type: "toggleInvalid", target, cat })}
               onClose={() => send({ type: "closeRound" })}
+              isOwner={isOwner}
+              ownerName={ownerName}
             />
           )}
         </main>
@@ -314,6 +348,8 @@ function Table({ g }: { g: G }) {
           nameOf={nameOf}
           me={me}
           onReset={() => send({ type: "reset" })}
+          ownerId={ownerId}
+          turnId={phase === "lobby" ? turnId : null}
           onLeave={g.leave}
         />
       </div>
