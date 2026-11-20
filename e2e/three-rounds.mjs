@@ -43,6 +43,9 @@ for (let r = 1; r <= 3; r++) {
   }
   const inputs = a.locator("form input");
   for (let i = 0; i < 5; i++) await inputs.nth(i).fill(`${L}${r}${i}`);
+  // Beto completa solo un casillero: los otros 4 cuentan como vacíos.
+  await b.locator("form input").first().fill(`${L}beto${r}`);
+  await sleep(900);
   await a.getByRole("button", { name: "¡Basta!", exact: true }).click();
   await a.getByText(`Revisión de la letra ${L}`).waitFor({ timeout: 15000 });
   await sleep(800);
@@ -56,6 +59,10 @@ check(true, "los dos ven la pantalla del ganador");
 check((await a.textContent("main")).includes("150"), "Ana suma 150 (3 rondas × 50)");
 check(await a.getByText("Los premios de la partida").isVisible(), "se ven los premios");
 check(await a.getByText("La más larga").isVisible(), "premio a la palabra más larga");
+check(
+  await a.locator("li", { hasText: "Más casilleros vacíos" }).filter({ hasText: "Beto" }).isVisible(),
+  "premio a más casilleros vacíos para Beto",
+);
 await a.screenshot({ path: `${OUT}/r-3-ganador-desktop.png` });
 await b.screenshot({ path: `${OUT}/r-3-ganador-mobile.png`, fullPage: true });
 

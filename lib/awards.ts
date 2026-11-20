@@ -170,6 +170,21 @@ export function computeAwards(results: RoundResult[]): Award[] {
     });
   }
 
+  // Más casilleros vacíos (solo cuenta lo que cada uno mandó en cada ronda).
+  const empties = new Map<string, number>();
+  for (const e of entries) if (!e.raw) bump(empties, e.player);
+  const lazy = leaders(empties);
+  if (lazy.n > 0) {
+    awards.push({
+      key: "empty",
+      emoji: "🕳️",
+      title: "Más casilleros vacíos",
+      value: plural(lazy.n, "casillero vacío", "casilleros vacíos"),
+      detail: "",
+      playerIds: lazy.ids,
+    });
+  }
+
   // Categoría más difícil: la que más quedó en cero.
   const zeros = new Map<string, number>();
   const totalsByCat = new Map<string, number>();

@@ -275,6 +275,27 @@ describe("computeAwards", () => {
     expect(aw.fast.playerIds).toEqual(["a"]);
     expect(aw.annulled.playerIds).toEqual(["a"]);
     expect(aw.hard.value).toBeTruthy();
+    // a: 1 vacío (serie) en ronda 1 + 4 en ronda 2 = 5; b: 2 + 4 = 6
+    expect(aw.empty.playerIds).toEqual(["b"]);
+    expect(aw.empty.value).toBe("6 casilleros vacíos");
+  });
+
+  it("casilleros vacíos: empate nombra a todos y sin vacíos no hay premio", () => {
+    const full = { nombre: "Ana", serie: "Avatar", lugar: "Asia", color: "Azul", marca: "Adidas" };
+    const pts = { nombre: 10, serie: 10, lugar: 10, color: 10, marca: 10 };
+    const tie = computeAwards([
+      {
+        round: 1,
+        letter: "A",
+        points: { a: pts, b: pts },
+        answers: { a: { ...full, color: "" }, b: { ...full, marca: "" } },
+      },
+    ]);
+    const empty = tie.find((x) => x.key === "empty")!;
+    expect(empty.playerIds.sort()).toEqual(["a", "b"]);
+    expect(empty.value).toBe("1 casillero vacío");
+    const none = computeAwards([{ round: 1, letter: "A", points: { a: pts }, answers: { a: full } }]);
+    expect(none.some((x) => x.key === "empty")).toBe(false);
   });
 
   it("partidas viejas sin respuestas guardadas no rompen", () => {
