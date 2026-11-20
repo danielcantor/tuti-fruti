@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #f5efe3;
+  --card: #fffaf1;
+  --ink: #1d1a16;
+  --muted: #6f665a;
+  --line: #e2d8c6;
+  --accent: #e2462b;
+  --accent-ink: #ffffff;
+  --accent-soft: #f9d9cf;
+  --wheel-a: #1d1a16;
+  --wheel-b: #f0e6d3;
+  --ok: #2f7d4f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #15130f;
+    --card: #1f1c17;
+    --ink: #f3ece0;
+    --muted: #a39887;
+    --line: #353028;
+    --accent: #ff6a4a;
+    --accent-ink: #1a0f0b;
+    --accent-soft: #4a221a;
+    --wheel-a: #f3ece0;
+    --wheel-b: #2a2620;
+    --ok: #6fcf97;
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-card: var(--card);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --font-sans: var(--nf-body), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--nf-display), ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+@keyframes pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.animate-pop { animation: pop 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pop { animation: none; }
+}
