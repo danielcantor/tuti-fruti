@@ -108,7 +108,7 @@ export function useGame() {
   }, []);
 
   const game = state?.game ?? { ...initialGame(), phase: "lobby" as Phase };
-  const phase: Phase = state ? derivePhase({ ...state.game, results: [] }, now || state.serverNow) : "lobby";
+  const phase: Phase = state ? derivePhase({ ...state.game, results: state.results }, now || state.serverNow) : "lobby";
 
   // Si la fase cambió por tiempo, pedir el estado completo (ej. respuestas de todos en la revisión).
   useEffect(() => {

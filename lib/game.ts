@@ -17,9 +17,15 @@ export const SPIN_MS = 4500;
 export const STOP_MS = 10000;
 /** Margen para que lleguen las últimas respuestas después de la cuenta regresiva. */
 export const GRACE_MS = 3000;
+/** Si nadie canta ¡Basta! en este tiempo, la ronda se corta sola. */
+export const ROUND_MS = 180_000;
+/** Una partida sin límite termina si nadie gira la ruleta en este tiempo. */
+export const IDLE_MS = 900_000;
+/** Cantidad de rondas a elegir; null = sin límite. */
+export const ROUND_OPTIONS: (number | null)[] = [3, 5, 10, null];
 
 export type StoredStatus = "lobby" | "spinning" | "stopping" | "review";
-export type Phase = "lobby" | "spinning" | "playing" | "stopping" | "review";
+export type Phase = "lobby" | "spinning" | "playing" | "stopping" | "review" | "finished";
 
 export type RoundResult = {
   round: number;
@@ -37,6 +43,10 @@ export type Game = {
   bastaAt: number | null;
   usedLetters: string[];
   results: RoundResult[];
+  /** null = sin límite (también en partidas guardadas antes de existir el campo). */
+  maxRounds?: number | null;
+  /** Hora en que se cerró la última ronda. */
+  closedAt?: number | null;
 };
 
 export const initialGame = (): Game => ({
@@ -48,6 +58,8 @@ export const initialGame = (): Game => ({
   bastaAt: null,
   usedLetters: [],
   results: [],
+  maxRounds: null,
+  closedAt: null,
 });
 
 export const emptyAnswers = (): Answers => ({
@@ -58,15 +70,45 @@ export const emptyAnswers = (): Answers => ({
   marca: "",
 });
 
-/** Fase efectiva según la hora: el giro y la cuenta regresiva terminan solos. */
+type Timing = Pick<Game, "status" | "spinAt" | "bastaAt">;
+
+/** Hora límite de la ronda: después de esto se canta ¡Basta! automático. */
+export function roundDeadline(game: Pick<Game, "spinAt">): number | null {
+  return game.spinAt === null ? null : game.spinAt + SPIN_MS + ROUND_MS;
+}
+
+/** El ¡Basta! cantado, o el automático si se acabó el tiempo de la ronda. */
+export function effectiveBastaAt(game: Timing, now: number): number | null {
+  if (game.bastaAt !== null) return game.bastaAt;
+  const deadline = roundDeadline(game);
+  if (game.status === "spinning" && deadline !== null && now >= deadline) return deadline;
+  return null;
+}
+
+/** Fase efectiva según la hora: el giro, la ronda y la cuenta regresiva terminan solos. */
 export function derivePhase(game: Game, now: number): Phase {
-  if (game.status === "spinning") {
-    return game.spinAt !== null && now >= game.spinAt + SPIN_MS ? "playing" : "spinning";
+  if (game.status === "spinning" || game.status === "stopping") {
+    const basta = effectiveBastaAt(game, now);
+    if (basta !== null) return now >= basta + STOP_MS ? "review" : "stopping";
+    if (game.status === "spinning") {
+      return game.spinAt !== null && now >= game.spinAt + SPIN_MS ? "playing" : "spinning";
+    }
+    return "stopping";
   }
-  if (game.status === "stopping") {
-    return game.bastaAt !== null && now >= game.bastaAt + STOP_MS ? "review" : "stopping";
+  if (game.status === "lobby" && game.results.length > 0) {
+    const max = game.maxRounds ?? null;
+    if (max !== null && game.results.length >= max) return "finished";
+    if (max === null && game.closedAt != null && now >= game.closedAt + IDLE_MS) return "finished";
   }
   return game.status;
+}
+
+/** Ids con el puntaje más alto (varios si hay empate). */
+export function winners(t: Record<string, number>): string[] {
+  const vals = Object.values(t);
+  if (vals.length === 0) return [];
+  const top = Math.max(...vals);
+  return Object.keys(t).filter((id) => t[id] === top);
 }
 
 export function pickLetter(used: string[], rand: () => number = Math.random): { letter: string; used: string[] } {

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  IDLE_MS,
+  ROUND_MS,
   SPIN_MS,
   STOP_MS,
   derivePhase,
@@ -9,6 +11,7 @@ import {
   pickLetter,
   scoreRound,
   totals,
+  winners,
 } from "@/lib/game";
 import { act, getState } from "@/lib/engine";
 import { createMemoryStore, hashFromReply, setStore } from "@/lib/store";
@@ -139,5 +142,97 @@ describe("hashFromReply", () => {
     });
     expect(hashFromReply(null)).toEqual({});
     expect(hashFromReply({ a: { name: "x" } })).toEqual({ a: '{"name":"x"}' });
+  });
+});
+
+describe("límite de rondas y cortes automáticos", () => {
+  const A = "aaaaaaaa-1111";
+  const B = "bbbbbbbb-2222";
+  const T0 = 2_000_000;
+  beforeEach(() => {
+    setStore(createMemoryStore());
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+
+  const full = async (playerId: string) => {
+    const st = await getState(playerId, null);
+    if ("same" in st) throw new Error();
+    const L = st.game.letter!;
+    return { nombre: L + "a", serie: L + "b", lugar: L + "c", color: L + "d", marca: L + "e" };
+  };
+
+  async function playRound() {
+    await act({ type: "spin", playerId: A });
+    vi.advanceTimersByTime(400 + SPIN_MS);
+    await act({ type: "basta", playerId: A, answers: await full(A) });
+    vi.advanceTimersByTime(STOP_MS);
+    await act({ type: "closeRound", playerId: B });
+  }
+
+  it("partida a 3 rondas termina sola y no deja girar más", async () => {
+    await act({ type: "join", playerId: A, name: "Ana" });
+    await act({ type: "join", playerId: B, name: "Beto" });
+    await expect(act({ type: "setMaxRounds", playerId: A, value: 4 })).rejects.toThrow();
+    await act({ type: "setMaxRounds", playerId: B, value: 3 });
+    await playRound();
+    await expect(act({ type: "setMaxRounds", playerId: A, value: 5 })).rejects.toThrow();
+    await playRound();
+    await playRound();
+    const st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    expect(st.game.phase).toBe("finished");
+    expect(st.game.maxRounds).toBe(3);
+    await expect(act({ type: "spin", playerId: A })).rejects.toThrow("terminó");
+    expect(winners(st.totals)).toEqual([A]);
+    await act({ type: "reset", playerId: A });
+    const again = await getState(A, null);
+    if ("same" in again) throw new Error();
+    expect(again.game.phase).toBe("lobby");
+    expect(again.game.maxRounds).toBe(3);
+  });
+
+  it("a los 3 minutos sin ¡Basta! la ronda se corta sola", async () => {
+    await act({ type: "join", playerId: A, name: "Ana" });
+    await act({ type: "spin", playerId: A });
+    vi.advanceTimersByTime(400 + SPIN_MS + ROUND_MS - 1);
+    let st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    expect(st.game.phase).toBe("playing");
+    vi.advanceTimersByTime(1);
+    st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    expect(st.game.phase).toBe("stopping");
+    // Cantar ¡Basta! tarde guarda las respuestas pero no cambia quién cortó.
+    await act({ type: "basta", playerId: A, answers: await full(A) });
+    const after = await getState(A, null);
+    if ("same" in after) throw new Error();
+    expect(after.game.bastaBy).toBeNull();
+    await act({ type: "answer", playerId: A, answers: { nombre: st.game.letter + "x" } });
+    vi.advanceTimersByTime(STOP_MS + 1000);
+    await act({ type: "answer", playerId: A, answers: { nombre: st.game.letter + "y" } }); // margen de gracia
+    st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    expect(st.game.phase).toBe("review");
+    expect(st.answers[A].nombre).toBe(st.game.letter + "y");
+  });
+
+  it("partida sin límite termina a los 15 minutos sin girar", async () => {
+    await act({ type: "join", playerId: A, name: "Ana" });
+    await act({ type: "join", playerId: B, name: "Beto" });
+    await playRound();
+    vi.advanceTimersByTime(IDLE_MS - 1);
+    let st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    expect(st.game.phase).toBe("lobby");
+    vi.advanceTimersByTime(1);
+    st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    expect(st.game.phase).toBe("finished");
+  });
+
+  it("winners maneja empates y vacío", () => {
+    expect(winners({ a: 30, b: 30, c: 10 })).toEqual(["a", "b"]);
+    expect(winners({})).toEqual([]);
   });
 });

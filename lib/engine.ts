@@ -5,8 +5,10 @@ import {
   type Game,
   CATEGORIES,
   GRACE_MS,
+  ROUND_OPTIONS,
   STOP_MS,
   derivePhase,
+  effectiveBastaAt,
   initialGame,
   invalidKey,
   isComplete,
@@ -36,7 +38,10 @@ export class GameError extends Error {
 
 async function readGame(): Promise<{ raw: string | null; game: Game }> {
   const raw = await getStore().get(K.game);
-  return { raw, game: raw ? (JSON.parse(raw) as Game) : initialGame() };
+  const game = raw ? (JSON.parse(raw) as Game) : initialGame();
+  game.maxRounds ??= null;
+  game.closedAt ??= null;
+  return { raw, game };
 }
 
 /** Cambia el juego de forma atómica; reintenta si otro jugador escribió al mismo tiempo. */
@@ -116,6 +121,7 @@ export type Action =
   | { type: "join"; playerId: string; name: string }
   | { type: "leave"; playerId: string }
   | { type: "spin"; playerId: string }
+  | { type: "setMaxRounds"; playerId: string; value: number | null }
   | { type: "answer"; playerId: string; answers: Partial<Answers> }
   | { type: "basta"; playerId: string; answers: Partial<Answers> }
   | { type: "toggleInvalid"; playerId: string; target: string; cat: CategoryKey }
@@ -155,7 +161,9 @@ export async function act(body: unknown): Promise<void> {
     case "spin": {
       await requirePlayer();
       await mutateGame((g, now) => {
-        if (derivePhase(g, now) !== "lobby") throw new GameError("La ronda ya empezó");
+        const phase = derivePhase(g, now);
+        if (phase === "finished") throw new GameError("La partida terminó. Empezá una nueva.");
+        if (phase !== "lobby") throw new GameError("La ronda ya empezó");
         const { letter, used } = pickLetter(g.usedLetters);
         return {
           ...g,
@@ -171,6 +179,19 @@ export async function act(body: unknown): Promise<void> {
       return;
     }
 
+    case "setMaxRounds": {
+      await requirePlayer();
+      const value = a.value === null ? null : Number(a.value);
+      if (!ROUND_OPTIONS.includes(value)) throw new GameError("Cantidad de rondas inválida", 400);
+      await mutateGame((g, now) => {
+        if (derivePhase(g, now) !== "lobby" || g.results.length > 0) {
+          throw new GameError("La cantidad de rondas se elige antes de la primera ronda");
+        }
+        return { ...g, maxRounds: value };
+      });
+      return;
+    }
+
     case "answer":
     case "basta": {
       await requirePlayer();
@@ -178,8 +199,8 @@ export async function act(body: unknown): Promise<void> {
       const { game } = await readGame();
       const now = Date.now();
       const phase = derivePhase(game, now);
-      const lateOk =
-        phase === "review" && game.bastaAt !== null && now < game.bastaAt + STOP_MS + GRACE_MS;
+      const basta = effectiveBastaAt(game, now);
+      const lateOk = phase === "review" && basta !== null && now < basta + STOP_MS + GRACE_MS;
       if (phase !== "playing" && phase !== "stopping" && !lateOk) {
         throw new GameError("La ronda está cerrada");
       }
@@ -235,6 +256,7 @@ export async function act(body: unknown): Promise<void> {
           spinAt: null,
           bastaBy: null,
           bastaAt: null,
+          closedAt: now,
           results: [...g.results, { round: g.round, letter: g.letter ?? "", points }],
         };
       });
@@ -245,7 +267,7 @@ export async function act(body: unknown): Promise<void> {
       await requirePlayer();
       const keys = (await store.keys("tf:answers:*")).concat(await store.keys("tf:invalid:*"));
       await store.del(...keys);
-      await mutateGame(() => initialGame());
+      await mutateGame((g) => ({ ...initialGame(), maxRounds: g.maxRounds ?? null }));
       return;
     }
 

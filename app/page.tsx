@@ -2,10 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AnswerForm from "@/components/AnswerForm";
+import Finished from "@/components/Finished";
 import Review from "@/components/Review";
 import Scoreboard from "@/components/Scoreboard";
 import Wheel from "@/components/Wheel";
-import { type Answers, CATEGORIES, STOP_MS, emptyAnswers } from "@/lib/game";
+import {
+  type Answers,
+  CATEGORIES,
+  ROUND_OPTIONS,
+  STOP_MS,
+  effectiveBastaAt,
+  emptyAnswers,
+  roundDeadline,
+} from "@/lib/game";
 import { useGame } from "@/lib/useGame";
 
 export default function Home() {
@@ -112,14 +121,25 @@ function Table({ g }: { g: G }) {
   }, [phase, flush]);
 
   const spinning = phase === "spinning";
-  const countdown = game.bastaAt ? Math.max(0, Math.ceil((game.bastaAt + STOP_MS - now) / 1000)) : 0;
+  const bastaAt = effectiveBastaAt(game, now);
+  const countdown = bastaAt ? Math.max(0, Math.ceil((bastaAt + STOP_MS - now) / 1000)) : 0;
+  const deadline = roundDeadline(game);
+  const left = deadline ? Math.max(0, Math.ceil((deadline - now) / 1000)) : 0;
+  const results = state?.results ?? [];
+  const maxRounds = game.maxRounds ?? null;
+  const started = results.length > 0;
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 lg:py-10">
       <header className="flex items-center justify-between gap-4">
         <Logo className="text-3xl sm:text-4xl" />
         <div className="text-right text-sm text-muted">
-          {game.round > 0 && <div>Ronda {game.round}</div>}
+          {game.round > 0 && (
+            <div>
+              Ronda {game.round}
+              {maxRounds !== null && ` de ${maxRounds}`}
+            </div>
+          )}
           <div>
             Jugás como <span className="font-semibold text-ink">{g.name}</span>
           </div>
@@ -152,6 +172,35 @@ function Table({ g }: { g: G }) {
                   >
                     Girar la ruleta
                   </button>
+                  {!started ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <span className="text-sm font-medium">¿Cuántas rondas?</span>
+                      <div role="radiogroup" aria-label="Cantidad de rondas" className="flex flex-wrap justify-center gap-2">
+                        {ROUND_OPTIONS.map((opt) => {
+                          const active = opt === maxRounds;
+                          return (
+                            <button
+                              key={String(opt)}
+                              role="radio"
+                              aria-checked={active}
+                              onClick={() => !active && send({ type: "setMaxRounds", value: opt })}
+                              className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${
+                                active ? "border-ink bg-ink text-paper" : "border-line bg-card hover:border-ink"
+                              }`}
+                            >
+                              {opt === null ? "Sin límite" : `${opt} rondas`}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm font-medium">
+                      {maxRounds !== null
+                        ? `Partida a ${maxRounds} rondas · faltan ${maxRounds - results.length}`
+                        : "Partida sin límite · si nadie gira en 15 min, la partida termina"}
+                    </p>
+                  )}
                   <p className="max-w-md text-sm text-muted">
                     Cuando gira, la ronda arranca para todos los que están en la sala.
                     {players.length > 0 && (
@@ -175,10 +224,20 @@ function Table({ g }: { g: G }) {
                 >
                   {game.letter}
                 </div>
-                <div>
+                <div className="flex-1">
                   <p className="font-display text-2xl font-extrabold tracking-tight sm:text-3xl">Todo con {game.letter}</p>
                   <p className="text-sm text-muted">Completá las 5 y cantá ¡Basta!</p>
                 </div>
+                {phase === "playing" && deadline && (
+                  <span
+                    title="Tiempo que queda de la ronda"
+                    className={`rounded-xl border px-3 py-1.5 font-display text-xl font-extrabold tabular-nums ${
+                      left <= 30 ? "border-accent bg-accent-soft text-accent" : "border-line text-muted"
+                    }`}
+                  >
+                    {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}
+                  </span>
+                )}
               </div>
 
               {phase === "stopping" && (
@@ -187,7 +246,11 @@ function Table({ g }: { g: G }) {
                   className="flex items-center justify-between gap-4 rounded-2xl bg-ink px-5 py-4 text-paper"
                 >
                   <span className="font-display text-xl font-extrabold sm:text-2xl">
-                    ¡Basta! {game.bastaBy === me ? "(lo cantaste vos)" : `cantó ${nameOf(game.bastaBy ?? "")}`}
+                    {!game.bastaBy
+                      ? "¡Se acabó el tiempo!"
+                      : game.bastaBy === me
+                        ? "¡Basta! (lo cantaste vos)"
+                        : `¡Basta! cantó ${nameOf(game.bastaBy)}`}
                   </span>
                   <span className="font-display text-4xl font-extrabold tabular-nums">{countdown}</span>
                 </div>
@@ -206,6 +269,20 @@ function Table({ g }: { g: G }) {
                 }}
               />
             </section>
+          )}
+
+          {phase === "finished" && (
+            <Finished
+              totals={{
+                ...Object.fromEntries(players.map((p) => [p.id, 0])),
+                ...(state?.totals ?? {}),
+              }}
+              rounds={results.length}
+              byIdle={maxRounds === null}
+              nameOf={nameOf}
+              me={me}
+              onRestart={() => send({ type: "reset" })}
+            />
           )}
 
           {phase === "review" && state && (
