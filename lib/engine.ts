@@ -1,9 +1,11 @@
 import {
   type Answers,
   type CategoryKey,
+  type ChatMessage,
   type ClientState,
   type Game,
   CATEGORIES,
+  CHAT_MAX_LEN,
   GRACE_MS,
   ROUND_OPTIONS,
   STOP_MS,
@@ -19,13 +21,21 @@ import {
 } from "./game";
 import { getStore } from "./store";
 
+// Las vistas previas de Vercel comparten la base de Upstash con producción:
+// usan otro prefijo para no mezclar partidas.
+const P = process.env.VERCEL_ENV === "preview" ? "tfp:" : "tf:";
+
 const K = {
-  game: "tf:game",
-  ver: "tf:ver",
-  players: "tf:players",
-  answers: (round: number) => `tf:answers:${round}`,
-  invalid: (round: number) => `tf:invalid:${round}`,
+  game: `${P}game`,
+  ver: `${P}ver`,
+  players: `${P}players`,
+  chat: `${P}chat`,
+  answers: (round: number) => `${P}answers:${round}`,
+  invalid: (round: number) => `${P}invalid:${round}`,
 };
+
+const CHAT_KEEP = 100;
+const CHAT_SEND = 50;
 
 export class GameError extends Error {
   constructor(
@@ -83,7 +93,19 @@ export async function getState(
   const now = Date.now();
   if (knownVer !== null && knownVer === ver) return { same: true, ver, serverNow: now };
 
-  const [{ game }, playersH] = await Promise.all([readGame(), store.hgetall(K.players)]);
+  const [{ game }, playersH, chatRaw] = await Promise.all([
+    readGame(),
+    store.hgetall(K.players),
+    store.lrange(K.chat, 0, CHAT_SEND - 1),
+  ]);
+  const chat: ChatMessage[] = [];
+  for (const raw of chatRaw) {
+    try {
+      chat.unshift(JSON.parse(raw) as ChatMessage);
+    } catch {
+      /* ignorar basura */
+    }
+  }
   const phase = derivePhase(game, now);
   const players = Object.entries(parseHash<{ name: string; joinedAt: number }>(playersH))
     .sort((a, b) => a[1].joinedAt - b[1].joinedAt)
@@ -114,6 +136,7 @@ export async function getState(
     results,
     totals: totals(results),
     preview,
+    chat,
   };
 }
 
@@ -126,7 +149,8 @@ export type Action =
   | { type: "basta"; playerId: string; answers: Partial<Answers> }
   | { type: "toggleInvalid"; playerId: string; target: string; cat: CategoryKey }
   | { type: "closeRound"; playerId: string }
-  | { type: "reset"; playerId: string };
+  | { type: "reset"; playerId: string }
+  | { type: "chat"; playerId: string; text: string };
 
 export async function act(body: unknown): Promise<void> {
   const a = body as Action;
@@ -273,9 +297,27 @@ export async function act(body: unknown): Promise<void> {
 
     case "reset": {
       await requirePlayer();
-      const keys = (await store.keys("tf:answers:*")).concat(await store.keys("tf:invalid:*"));
+      const keys = (await store.keys(`${P}answers:*`)).concat(await store.keys(`${P}invalid:*`));
       await store.del(...keys);
       await mutateGame((g) => ({ ...initialGame(), maxRounds: g.maxRounds ?? null }));
+      return;
+    }
+
+    case "chat": {
+      const text = typeof a.text === "string" ? a.text.replace(/\s+/g, " ").trim().slice(0, CHAT_MAX_LEN) : "";
+      if (!text) throw new GameError("Escribí un mensaje", 400);
+      const players = parseHash<{ name: string }>(await store.hgetall(K.players));
+      const me = players[a.playerId];
+      if (!me) throw new GameError("Primero entrá con tu nombre", 403);
+      const msg: ChatMessage = {
+        id: crypto.randomUUID(),
+        playerId: a.playerId,
+        name: me.name,
+        text,
+        at: Date.now(),
+      };
+      await store.pushCapped(K.chat, JSON.stringify(msg), CHAT_KEEP);
+      await store.incr(K.ver);
       return;
     }
 

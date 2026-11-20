@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AnswerForm from "@/components/AnswerForm";
+import Chat from "@/components/Chat";
 import Finished from "@/components/Finished";
 import Review from "@/components/Review";
 import Scoreboard from "@/components/Scoreboard";
@@ -130,7 +131,7 @@ function Table({ g }: { g: G }) {
   const started = results.length > 0;
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 lg:py-10">
+    <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-6 px-4 pt-6 pb-24 sm:px-6 lg:pt-10">
       <header className="flex items-center justify-between gap-4">
         <Logo className="text-3xl sm:text-4xl" />
         <div className="text-right text-sm text-muted">
@@ -311,10 +312,12 @@ function Table({ g }: { g: G }) {
         />
       </div>
 
+      <Chat messages={state?.chat ?? []} me={me} onSend={(text) => send({ type: "chat", text })} />
+
       {g.error && (
         <div
           role="alert"
-          className="fixed inset-x-4 bottom-4 mx-auto max-w-md rounded-xl bg-ink px-4 py-3 text-center text-sm text-paper shadow-lg"
+          className="fixed inset-x-4 bottom-20 z-50 mx-auto max-w-md sm:bottom-4 rounded-xl bg-ink px-4 py-3 text-center text-sm text-paper shadow-lg"
         >
           {g.error}
         </div>

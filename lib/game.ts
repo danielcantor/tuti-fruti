@@ -205,6 +205,17 @@ export function sanitizeAnswers(input: unknown): Answers {
   return out;
 }
 
+export type ChatMessage = {
+  id: string;
+  playerId: string;
+  /** Copia del nombre al momento de escribir, por si después sale de la sala. */
+  name: string;
+  text: string;
+  at: number;
+};
+
+export const CHAT_MAX_LEN = 200;
+
 /** Estado que recibe el navegador. */
 export type ClientState = {
   ver: number;
@@ -218,4 +229,6 @@ export type ClientState = {
   totals: Record<string, number>;
   /** Puntos en vivo de la ronda en revisión. */
   preview: RoundResult["points"] | null;
+  /** Últimos mensajes del chat, del más viejo al más nuevo. */
+  chat: ChatMessage[];
 };

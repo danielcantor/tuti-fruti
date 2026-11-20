@@ -11,6 +11,9 @@ export interface Store {
   hgetall(key: string): Promise<Record<string, string>>;
   del(...keys: string[]): Promise<void>;
   keys(pattern: string): Promise<string[]>;
+  /** Agrega al principio de la lista y la recorta a `max` elementos. */
+  pushCapped(key: string, value: string, max: number): Promise<void>;
+  lrange(key: string, start: number, stop: number): Promise<string[]>;
 }
 
 const CAS_SCRIPT = `
@@ -65,10 +68,28 @@ class RedisStore implements Store {
   keys(pattern: string) {
     return this.r.keys(pattern);
   }
+  async pushCapped(key: string, value: string, max: number) {
+    const p = this.r.pipeline();
+    p.lpush(key, value);
+    p.ltrim(key, 0, max - 1);
+    await p.exec();
+  }
+  async lrange(key: string, start: number, stop: number) {
+    return ((await this.r.lrange(key, start, stop)) ?? []).map(String);
+  }
 }
 
 class MemoryStore implements Store {
   private kv = new Map<string, string>();
+  private lists = new Map<string, string[]>();
+  async pushCapped(key: string, value: string, max: number) {
+    const l = [value, ...(this.lists.get(key) ?? [])].slice(0, max);
+    this.lists.set(key, l);
+  }
+  async lrange(key: string, start: number, stop: number) {
+    const l = this.lists.get(key) ?? [];
+    return l.slice(start, stop < 0 ? l.length + stop + 1 : stop + 1);
+  }
   private h = new Map<string, Map<string, string>>();
   async get(key: string) {
     return this.kv.get(key) ?? null;

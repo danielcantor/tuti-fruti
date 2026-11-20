@@ -15,7 +15,7 @@ import {
 } from "@/lib/game";
 import { computeAwards } from "@/lib/awards";
 import { act, getState } from "@/lib/engine";
-import { createMemoryStore, hashFromReply, setStore } from "@/lib/store";
+import { createMemoryStore, getStore, hashFromReply, setStore } from "@/lib/store";
 
 describe("normalize", () => {
   it("saca acentos, mayúsculas y espacios pero conserva la ñ", () => {
@@ -314,5 +314,39 @@ describe("computeAwards", () => {
 
   it("partidas viejas sin respuestas guardadas no rompen", () => {
     expect(computeAwards([{ round: 1, letter: "A", points: { a: { nombre: 10 } } }])).toEqual([]);
+  });
+});
+
+describe("chat", () => {
+  const A = "aaaaaaaa-1111";
+  beforeEach(() => setStore(createMemoryStore()));
+
+  it("valida, recorta y guarda solo los últimos 100", async () => {
+    await expect(act({ type: "chat", playerId: A, text: "hola" })).rejects.toThrow("entrá");
+    await act({ type: "join", playerId: A, name: "Ana" });
+    await expect(act({ type: "chat", playerId: A, text: "   " })).rejects.toThrow();
+    await act({ type: "chat", playerId: A, text: "  hola   che  " });
+    await act({ type: "chat", playerId: A, text: "x".repeat(300) });
+    let st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    expect(st.chat.map((m) => m.text.length)).toEqual([8, 200]);
+    expect(st.chat[0]).toMatchObject({ text: "hola che", name: "Ana", playerId: A });
+
+    for (let i = 0; i < 120; i++) await act({ type: "chat", playerId: A, text: `m${i}` });
+    st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    expect(st.chat).toHaveLength(50); // se mandan los últimos 50
+    expect(st.chat[49].text).toBe("m119"); // el más nuevo al final
+    expect(await getStore().lrange("tf:chat", 0, -1)).toHaveLength(100);
+  });
+
+  it("se puede escribir durante la ronda y Nueva partida no lo borra", async () => {
+    await act({ type: "join", playerId: A, name: "Ana" });
+    await act({ type: "spin", playerId: A });
+    await act({ type: "chat", playerId: A, text: "¡vamos!" });
+    await act({ type: "reset", playerId: A });
+    const st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    expect(st.chat.map((m) => m.text)).toEqual(["¡vamos!"]);
   });
 });
