@@ -606,6 +606,45 @@ describe("answerProblem", () => {
     expect(answerProblem("hh", "H", "marca")).toBeTruthy();
   });
 
+  it("categorías nuevas: siglas, palabras cortas y apellidos extranjeros", () => {
+    for (const [a, l, c] of [
+      ["Oso", "O", "animal"],
+      ["Yacaré", "Y", "animal"],
+      ["Uva", "U", "fruta"],
+      ["Té", "T", "comida"],
+      ["Milanesa a la napolitana", "M", "comida"],
+      ["TV", "T", "objeto"],
+      ["Nietzsche", "N", "famoso"],
+      ["Schwarzenegger", "S", "famoso"],
+      ["JFK", "J", "famoso"],
+      ["Mr. Bean", "M", "famoso"],
+      ["U2", "U", "cantante"],
+      ["BTS", "B", "cantante"],
+      ["AC/DC", "A", "cantante"],
+      ["MGMT", "M", "cantante"],
+      ["Rammstein", "R", "cantante"],
+      ["NYC", "N", "lugar"],
+      ["Jean", "J", "ropa"],
+      ["Había un piquete en la 9 de Julio", "H", "excusa"],
+      ["Tráfico", "T", "excusa"],
+    ] as const) {
+      expect(answerProblem(a, l, c), `${c}: ${a}`).toBeNull();
+    }
+    // La basura sigue sin pasar.
+    for (const [a, l, c] of [
+      ["Hjkl", "H", "famoso"], // sin vocales y en minúscula: no es sigla
+      ["Hhh", "H", "cantante"],
+      ["Xxxxx", "X", "famoso"],
+      ["B", "B", "cantante"],
+      ["TV", "T", "nombre"], // en nombre no valen siglas ni palabras de dos letras
+      ["Pqrst", "P", "animal"],
+      ["Sdfghjkl", "S", "excusa"],
+      ["Zzz me dormí", "Z", "excusa"],
+    ] as const) {
+      expect(answerProblem(a, l, c), `${c}: ${a}`).toBeTruthy();
+    }
+  });
+
   it("las inválidas valen 0 en el puntaje", () => {
     const e = { nombre: "", serie: "", lugar: "", color: "", marca: "" };
     const pts = scoreRound("H", { a: { ...e, serie: "h", color: "Hueso" } }, new Set());

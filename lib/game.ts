@@ -238,24 +238,41 @@ export function startsWithLetter(answer: string, letter: string): boolean {
 
 const VOWELS = /[aeiouy]/;
 
+/** Donde valen palabras de dos letras: Té, TV, LG, U2. */
+const SHORT_OK = new Set<CategoryKey>(["marca", "comida", "objeto", "famoso", "cantante"]);
+/** Donde una sigla escrita en mayúsculas vale aunque no tenga vocales: BTS, JFK, NYC, TV. */
+const SIGLA_OK = new Set<CategoryKey>(["marca", "cantante", "famoso", "objeto", "lugar", "serie"]);
+/** Nombres propios, muchas veces extranjeros: Nietzsche, Schwarzenegger. */
+const FOREIGN_OK = new Set<CategoryKey>(["famoso", "cantante", "marca"]);
+
+/** Escrita toda en mayúsculas, corta y con alguna letra: BTS, AC/DC, U2, H&M. */
+function isSigla(raw: string): boolean {
+  const alnum = raw.replace(/[^A-Za-zÑñ0-9]/g, "");
+  return /^[A-ZÑ0-9&.\-/ ]+$/.test(raw) && /[A-ZÑ]/.test(raw) && alnum.length >= 2 && alnum.length <= 6;
+}
+
 /**
  * Por qué una respuesta no vale, o null si pasa los controles automáticos.
  * No es un diccionario: atrapa "h", "hhh", "Hxzq" y cosas así. Lo demás se
- * anula a mano en la revisión. Las marcas pueden ser siglas (LG, HP, H&M).
+ * anula por votación en la revisión. Según la categoría acepta siglas
+ * (LG, BTS, TV), palabras de dos letras (Té) y apellidos extranjeros.
  */
 export function answerProblem(answer: string | undefined, letter: string, cat: CategoryKey): string | null {
-  const n = normalize(answer ?? "");
+  const raw = (answer ?? "").trim();
+  const n = normalize(raw);
   if (!n) return null; // vacía: no es "inválida", simplemente no suma
   if (!n.startsWith(normalize(letter))) return `No empieza con ${letter}`;
   const ls = n.replace(/[^a-zñ]/g, "");
-  const isBrand = cat === "marca";
-  const min = isBrand ? 2 : 3;
-  if (ls.length < min) return `Muy corta (mínimo ${min} letras)`;
-  if (/^(.)\1*$/.test(ls)) return "No es una palabra";
+  const sigla = cat === "marca" || (SIGLA_OK.has(cat) && isSigla(raw));
+  const min = SHORT_OK.has(cat) || sigla ? 2 : 3;
+  // En siglas cuentan los números (U2, 3M).
+  const chars = sigla ? n.replace(/[^a-z0-9ñ]/g, "") : ls;
+  if (chars.length < min) return `Muy corta (mínimo ${min} letras)`;
+  if (/^(.)\1*$/.test(chars)) return "No es una palabra";
   if (/([a-zñ])\1\1/.test(ls)) return "Tiene letras repetidas de más";
-  if (!isBrand) {
+  if (!sigla) {
     if (!VOWELS.test(ls)) return "No es una palabra (sin vocales)";
-    if (n.split(" ").some((w) => /[^aeiouy\s\d]{5,}/.test(w))) return "No es una palabra";
+    if (!FOREIGN_OK.has(cat) && n.split(" ").some((w) => /[^aeiouy\s\d]{5,}/.test(w))) return "No es una palabra";
   }
   return null;
 }
