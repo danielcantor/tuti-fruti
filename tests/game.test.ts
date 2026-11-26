@@ -6,6 +6,7 @@ import {
   STOP_MS,
   VOTE_MS,
   answerProblem,
+  cleanCategories,
   derivePhase,
   roomRoles,
   initialGame,
@@ -231,6 +232,61 @@ describe("votación de respuestas", () => {
     expect(s.results[0].votes).toEqual({ [`${A}|color`]: { no: 1, yes: 1 }, [`${B}|lugar`]: { no: 1, yes: 0 } });
     expect(JSON.stringify(s.results)).not.toMatch(/"(bbbbbbbb-2222|cccccccc-3333)":(true|false)/);
     expect(s.votes).toEqual({});
+    vi.useRealTimers();
+  });
+});
+
+describe("categorías elegidas por el dueño", () => {
+  it("cleanCategories: sin repetir, en orden, entre 3 y 8", () => {
+    expect(cleanCategories(["animal", "nombre", "excusa", "animal"])).toEqual(["nombre", "animal", "excusa"]);
+    expect(cleanCategories(["nombre", "animal"])).toBeNull();
+    expect(cleanCategories(["nombre", "animal", "pizza"])).toBeNull();
+    expect(cleanCategories("nombre")).toBeNull();
+    expect(
+      cleanCategories(["nombre", "serie", "lugar", "color", "marca", "animal", "fruta", "comida", "objeto"]),
+    ).toBeNull();
+  });
+
+  it("solo el dueño, antes de la primera ronda; se juega y puntúa con esas", async () => {
+    setStore(createMemoryStore());
+    vi.useFakeTimers();
+    vi.setSystemTime(3_000_000);
+    const [A, B] = ["aaaaaaaa-1111", "bbbbbbbb-2222"];
+    await act({ type: "join", playerId: A, name: "Ana" });
+    await act({ type: "join", playerId: B, name: "Beto" });
+    const cats = ["animal", "ropa", "excusa"] as const;
+    await expect(act({ type: "setCategories", playerId: B, categories: [...cats] })).rejects.toThrow("dueño");
+    await expect(act({ type: "setCategories", playerId: A, categories: ["animal"] })).rejects.toThrow("entre 3 y 8");
+    await act({ type: "setCategories", playerId: A, categories: [...cats] });
+
+    await act({ type: "spin", playerId: A });
+    vi.advanceTimersByTime(400 + SPIN_MS);
+    const st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    expect(st.game.categories).toEqual(["animal", "ropa", "excusa"]);
+    await expect(act({ type: "setCategories", playerId: A, categories: ["nombre", "lugar", "color"] })).rejects.toThrow(
+      "antes de la primera ronda",
+    );
+    const L = st.game.letter!;
+    // Las categorías que no se juegan se ignoran.
+    await act({ type: "basta", playerId: A, answers: { animal: L + "ana", ropa: L + "opa", excusa: L + "e me hizo tarde", nombre: L + "ola" } });
+    await act({ type: "answer", playerId: B, answers: { animal: L + "ana", ropa: L + "emera" } });
+    vi.advanceTimersByTime(STOP_MS);
+    await act({ type: "closeRound", playerId: A });
+
+    const end = await getState(A, null);
+    if ("same" in end) throw new Error();
+    expect(end.results[0].categories).toEqual(["animal", "ropa", "excusa"]);
+    expect(end.results[0].points[A]).toEqual({ animal: 5, ropa: 10, excusa: 10 });
+    expect(end.results[0].answers![A].nombre).toBeUndefined();
+    expect(end.totals).toEqual({ [A]: 25, [B]: 15 });
+    await expect(act({ type: "setCategories", playerId: A, categories: ["nombre", "lugar", "color"] })).rejects.toThrow();
+
+    // Nueva partida: conserva las categorías elegidas.
+    await act({ type: "reset", playerId: A });
+    const fresh = await getState(A, null);
+    if ("same" in fresh) throw new Error();
+    expect(fresh.game.categories).toEqual(["animal", "ropa", "excusa"]);
     vi.useRealTimers();
   });
 });

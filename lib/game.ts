@@ -2,16 +2,48 @@
 
 export const LETTERS = "ABCDEFGHIJLMNOPRSTUVZ".split("");
 
+/** Todas las categorías posibles; el dueño elige cuáles se juegan. */
 export const CATEGORIES = [
   { key: "nombre", label: "Nombre" },
   { key: "serie", label: "Serie / Película" },
   { key: "lugar", label: "Lugar" },
   { key: "color", label: "Color" },
   { key: "marca", label: "Marca" },
+  { key: "animal", label: "Animal" },
+  { key: "fruta", label: "Fruta o verdura" },
+  { key: "comida", label: "Comida" },
+  { key: "objeto", label: "Cosa u objeto" },
+  { key: "famoso", label: "Persona famosa" },
+  { key: "cantante", label: "Cantante o banda" },
+  { key: "ropa", label: "Ropa o accesorio" },
+  { key: "excusa", label: "Excusa para llegar tarde" },
 ] as const;
 
 export type CategoryKey = (typeof CATEGORIES)[number]["key"];
-export type Answers = Record<CategoryKey, string>;
+/** Respuestas de un jugador: solo las categorías que se juegan en la partida. */
+export type Answers = Partial<Record<CategoryKey, string>>;
+
+export const DEFAULT_CATEGORIES: CategoryKey[] = ["nombre", "serie", "lugar", "color", "marca"];
+export const MIN_CATEGORIES = 3;
+export const MAX_CATEGORIES = 8;
+export const ANSWER_MAX_LEN = 80;
+
+export const categoryLabel = (k: string) => CATEGORIES.find((c) => c.key === k)?.label ?? k;
+export const isCategory = (k: unknown): k is CategoryKey => CATEGORIES.some((c) => c.key === k);
+
+/** Las categorías de la partida, en el orden de la lista (partidas viejas: las 5 de siempre). */
+export function gameCategories(g: { categories?: CategoryKey[] | null }): CategoryKey[] {
+  const set = new Set(g.categories?.length ? g.categories : DEFAULT_CATEGORIES);
+  return CATEGORIES.map((c) => c.key).filter((k) => set.has(k));
+}
+
+/** Valida una elección de categorías: sin repetir, de MIN a MAX. Devuelve null si no sirve. */
+export function cleanCategories(input: unknown): CategoryKey[] | null {
+  if (!Array.isArray(input) || !input.every(isCategory)) return null;
+  const cats = gameCategories({ categories: [...new Set(input)] });
+  if (input.length === 0 || cats.length < MIN_CATEGORIES || cats.length > MAX_CATEGORIES) return null;
+  return cats;
+}
 
 export const SPIN_MS = 4500;
 /** Cuenta regresiva después de ¡Basta! para terminar de escribir. */
@@ -41,6 +73,8 @@ export type RoundResult = {
   votes?: Record<string, { no: number; yes: number }>;
   /** Quién cantó ¡Basta! (null si se cortó por tiempo). */
   bastaBy?: string | null;
+  /** Categorías jugadas (partidas viejas: las 5 de siempre). */
+  categories?: CategoryKey[];
 };
 
 export type Game = {
@@ -54,6 +88,8 @@ export type Game = {
   results: RoundResult[];
   /** null = sin límite (también en partidas guardadas antes de existir el campo). */
   maxRounds?: number | null;
+  /** Categorías que se juegan (las elige el dueño antes de la primera ronda). */
+  categories?: CategoryKey[];
   /** Hora en que se cerró la última ronda. */
   closedAt?: number | null;
   /** Quién tenía el turno en el último giro (para pasarle el turno al siguiente). */
@@ -70,6 +106,7 @@ export const initialGame = (): Game => ({
   usedLetters: [],
   results: [],
   maxRounds: null,
+  categories: [...DEFAULT_CATEGORIES],
   closedAt: null,
   lastSpinner: null,
 });
@@ -97,13 +134,8 @@ export function roomRoles(
   return { ownerId, turnId: online[0].id };
 }
 
-export const emptyAnswers = (): Answers => ({
-  nombre: "",
-  serie: "",
-  lugar: "",
-  color: "",
-  marca: "",
-});
+export const emptyAnswers = (cats: CategoryKey[] = DEFAULT_CATEGORIES): Answers =>
+  Object.fromEntries(cats.map((k) => [k, ""]));
 
 type Timing = Pick<Game, "status" | "spinAt" | "bastaAt">;
 
@@ -182,8 +214,8 @@ const VOWELS = /[aeiouy]/;
  * No es un diccionario: atrapa "h", "hhh", "Hxzq" y cosas así. Lo demás se
  * anula a mano en la revisión. Las marcas pueden ser siglas (LG, HP, H&M).
  */
-export function answerProblem(answer: string, letter: string, cat: CategoryKey): string | null {
-  const n = normalize(answer);
+export function answerProblem(answer: string | undefined, letter: string, cat: CategoryKey): string | null {
+  const n = normalize(answer ?? "");
   if (!n) return null; // vacía: no es "inválida", simplemente no suma
   if (!n.startsWith(normalize(letter))) return `No empieza con ${letter}`;
   const ls = n.replace(/[^a-zñ]/g, "");
@@ -268,14 +300,15 @@ export function parseVotes(h: Record<string, string>): Votes {
  */
 export function scoreRound(
   letter: string,
-  answers: Record<string, Partial<Answers>>,
+  answers: Record<string, Answers>,
   invalid: Set<string>,
+  cats: CategoryKey[] = DEFAULT_CATEGORIES,
 ): RoundResult["points"] {
   const points: RoundResult["points"] = {};
   const ids = Object.keys(answers);
   for (const id of ids) points[id] = {};
 
-  for (const { key } of CATEGORIES) {
+  for (const key of cats) {
     const valid = new Map<string, string>();
     for (const id of ids) {
       const raw = answers[id]?.[key] ?? "";
@@ -303,16 +336,16 @@ export function totals(results: RoundResult[]): Record<string, number> {
   return t;
 }
 
-export function isComplete(a: Partial<Answers>): boolean {
-  return CATEGORIES.every(({ key }) => (a[key] ?? "").trim().length > 0);
+export function isComplete(a: Answers, cats: CategoryKey[] = DEFAULT_CATEGORIES): boolean {
+  return cats.every((key) => (a[key] ?? "").trim().length > 0);
 }
 
-export function sanitizeAnswers(input: unknown): Answers {
-  const out = emptyAnswers();
+export function sanitizeAnswers(input: unknown, cats: CategoryKey[] = DEFAULT_CATEGORIES): Answers {
+  const out = emptyAnswers(cats);
   if (input && typeof input === "object") {
-    for (const { key } of CATEGORIES) {
+    for (const key of cats) {
       const v = (input as Record<string, unknown>)[key];
-      if (typeof v === "string") out[key] = v.slice(0, 60);
+      if (typeof v === "string") out[key] = v.slice(0, ANSWER_MAX_LEN);
     }
   }
   return out;

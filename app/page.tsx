@@ -11,10 +11,14 @@ import Wheel from "@/components/Wheel";
 import {
   type Answers,
   CATEGORIES,
+  type CategoryKey,
+  MAX_CATEGORIES,
+  MIN_CATEGORIES,
   ROUND_OPTIONS,
   STOP_MS,
   effectiveBastaAt,
   emptyAnswers,
+  gameCategories,
   roundDeadline,
 } from "@/lib/game";
 import { useGame } from "@/lib/useGame";
@@ -44,8 +48,8 @@ function Join({ onJoin }: { onJoin: (name: string) => Promise<boolean> }) {
         <div className="flex flex-col gap-3">
           <Logo className="text-5xl" />
           <p className="text-muted">
-            Una letra, cinco categorías: {CATEGORIES.map((c) => c.label.toLowerCase()).join(", ")}. El primero que
-            completa todo canta <strong className="text-ink">¡Basta!</strong>
+            Una letra y varias categorías: nombre, lugar, color, animal y más (las elige el dueño de la sala). El
+            primero que completa todo canta <strong className="text-ink">¡Basta!</strong>
           </p>
         </div>
         <label className="flex flex-col gap-2">
@@ -99,7 +103,7 @@ function Table({ g }: { g: G }) {
   if (state && game.round !== draftRound) {
     // Ronda nueva: empezar en blanco (o con lo que ya había guardado si recargó la página).
     setDraftRound(game.round);
-    setDraft(state.answers[me] ?? emptyAnswers());
+    setDraft(state.answers[me] ?? emptyAnswers(gameCategories(game)));
   }
 
   const flush = useCallback(() => {
@@ -135,6 +139,11 @@ function Table({ g }: { g: G }) {
   const ownerName = ownerId ? nameOf(ownerId) : "el dueño";
   const maxRounds = game.maxRounds ?? null;
   const started = results.length > 0;
+  const cats = gameCategories(game);
+  const toggleCat = (k: CategoryKey) => {
+    const next = cats.includes(k) ? cats.filter((c) => c !== k) : [...cats, k];
+    if (next.length >= MIN_CATEGORIES && next.length <= MAX_CATEGORIES) send({ type: "setCategories", categories: next });
+  };
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-6 px-4 pt-6 pb-24 sm:px-6 lg:pt-10">
@@ -225,6 +234,45 @@ function Table({ g }: { g: G }) {
                           );
                         })}
                       </div>
+                      <span className="mt-3 text-sm font-medium">
+                        Categorías ({cats.length})
+                        <span className="text-muted">
+                          {isOwner
+                            ? ` · elegí entre ${MIN_CATEGORIES} y ${MAX_CATEGORIES}`
+                            : ` · las elige ${ownerName}`}
+                        </span>
+                      </span>
+                      <div
+                        role="group"
+                        aria-label="Categorías"
+                        className="flex max-w-xl flex-wrap justify-center gap-2"
+                      >
+                        {CATEGORIES.map(({ key, label }) => {
+                          const on = cats.includes(key);
+                          const blocked = on ? cats.length <= MIN_CATEGORIES : cats.length >= MAX_CATEGORIES;
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              aria-pressed={on}
+                              disabled={!isOwner || blocked}
+                              title={
+                                isOwner && blocked
+                                  ? on
+                                    ? `Tiene que haber al menos ${MIN_CATEGORIES}`
+                                    : `Máximo ${MAX_CATEGORIES} categorías`
+                                  : undefined
+                              }
+                              onClick={() => toggleCat(key)}
+                              className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition disabled:cursor-default ${
+                                on ? "border-ink bg-ink text-paper" : "border-line bg-card enabled:hover:border-ink"
+                              } ${!on && (blocked || !isOwner) ? "opacity-50" : ""}`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   ) : (
                     <p className="text-sm font-medium">
@@ -263,7 +311,7 @@ function Table({ g }: { g: G }) {
                 </div>
                 <div className="flex-1">
                   <p className="font-display text-2xl font-extrabold tracking-tight sm:text-3xl">Todo con {game.letter}</p>
-                  <p className="text-sm text-muted">Completá las 5 y cantá ¡Basta!</p>
+                  <p className="text-sm text-muted">Completá las {cats.length} y cantá ¡Basta!</p>
                 </div>
                 {phase === "playing" && deadline && (
                   <span
@@ -295,6 +343,7 @@ function Table({ g }: { g: G }) {
 
               <AnswerForm
                 letter={game.letter}
+                categories={cats}
                 answers={draft}
                 onChange={onChange}
                 stopping={phase === "stopping"}
@@ -328,6 +377,7 @@ function Table({ g }: { g: G }) {
           {phase === "review" && state && (
             <Review
               letter={game.letter ?? ""}
+              categories={cats}
               answers={state.answers}
               invalid={state.invalid}
               votes={state.votes ?? {}}

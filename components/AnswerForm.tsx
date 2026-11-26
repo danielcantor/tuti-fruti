@@ -1,9 +1,10 @@
 "use client";
 
-import { type Answers, CATEGORIES, answerProblem, isComplete } from "@/lib/game";
+import { ANSWER_MAX_LEN, type Answers, type CategoryKey, answerProblem, categoryLabel, isComplete } from "@/lib/game";
 
 type Props = {
   letter: string;
+  categories: CategoryKey[];
   answers: Answers;
   onChange: (a: Answers) => void;
   onBasta: () => void;
@@ -11,8 +12,8 @@ type Props = {
   stopping: boolean;
 };
 
-export default function AnswerForm({ letter, answers, onChange, onBasta, locked, stopping }: Props) {
-  const complete = isComplete(answers);
+export default function AnswerForm({ letter, categories, answers, onChange, onBasta, locked, stopping }: Props) {
+  const complete = isComplete(answers, categories);
   return (
     <form
       className="flex flex-col gap-3"
@@ -21,8 +22,9 @@ export default function AnswerForm({ letter, answers, onChange, onBasta, locked,
         if (complete && !stopping && !locked) onBasta();
       }}
     >
-      {CATEGORIES.map(({ key, label }, i) => {
-        const v = answers[key];
+      {categories.map((key, i) => {
+        const label = categoryLabel(key);
+        const v = answers[key] ?? "";
         const problem = answerProblem(v, letter, key);
         const wrong = problem !== null;
         return (
@@ -35,7 +37,7 @@ export default function AnswerForm({ letter, answers, onChange, onBasta, locked,
               autoFocus={i === 0}
               disabled={locked}
               value={v}
-              maxLength={60}
+              maxLength={ANSWER_MAX_LEN}
               autoComplete="off"
               autoCapitalize="words"
               spellCheck={false}

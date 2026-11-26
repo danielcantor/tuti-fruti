@@ -1,7 +1,9 @@
 # Tuti Fruti
 
-Tuti Fruti multijugador para jugar con la oficina: ruleta de letras compartida, cinco categorías
-(Nombre, Serie/Película, Lugar, Color, Marca), botón **¡Basta!** con cuenta regresiva de 5 s,
+Tuti Fruti multijugador para jugar con la oficina: ruleta de letras compartida, categorías a
+elección del dueño de la sala (de 3 a 8, entre Nombre, Serie/Película, Lugar, Color, Marca, Animal,
+Fruta o verdura, Comida, Cosa u objeto, Persona famosa, Cantante o banda, Ropa o accesorio y
+Excusa para llegar tarde; por defecto las cinco primeras), botón **¡Basta!** con cuenta regresiva de 5 s,
 revisión con votación para anular respuestas y tabla de puntos acumulada.
 
 Votación: en la revisión, cualquiera toca una respuesta que le parece que no vale y la lleva a
@@ -11,7 +13,7 @@ anula si hay más votos de «no vale» que de «vale»; si empatan, queda. Quien
 los votos de quien se fue de la sala no cuentan. Mientras haya una votación abierta, el dueño no
 puede pasar a la próxima ronda.
 
-Antes de la primera ronda se elige cuántas rondas jugar (3, 5, 10 o sin límite); al terminar
+Antes de la primera ronda el dueño elige las categorías y cuántas rondas jugar (3, 5, 10 o sin límite); al terminar
 aparece el ganador. Cortes automáticos para que nada quede colgado: si nadie canta ¡Basta! en
 3 minutos la ronda se corta sola, y una partida sin límite termina si nadie gira en 15 minutos.
 
@@ -36,4 +38,5 @@ npm test           # lógica y partida completa
 ```
 Pruebas con dos navegadores (Playwright): `node e2e/two-players.mjs http://localhost:3000` 
 `node e2e/three-rounds.mjs http://localhost:3000` y `node e2e/votes.mjs http://localhost:3000`
-(tres jugadores votando; correrla con el servidor recién iniciado).
+(tres jugadores votando) y `node e2e/categories.mjs http://localhost:3000` (elegir categorías);
+correr cada una con el servidor recién iniciado.

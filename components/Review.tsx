@@ -4,9 +4,9 @@ import {
   type Answers,
   type CategoryKey,
   type VoteTally,
-  CATEGORIES,
   VOTE_MS,
   answerProblem,
+  categoryLabel,
   invalidKey,
   voteClosed,
 } from "@/lib/game";
@@ -15,6 +15,7 @@ type Vote = "si" | "no" | null;
 
 type Props = {
   letter: string;
+  categories: CategoryKey[];
   answers: Record<string, Answers>;
   invalid: string[];
   votes: Record<string, VoteTally>;
@@ -32,12 +33,12 @@ type Props = {
 const badge = (p: number) =>
   p === 10 ? "bg-ok/15 text-ok" : p === 5 ? "bg-accent-soft text-ink" : "bg-line text-muted";
 
-const labelOf = (cat: CategoryKey) => CATEGORIES.find((c) => c.key === cat)?.label ?? cat;
 const anchor = (id: string, cat: CategoryKey) => `voto-${id}-${cat}`;
 const people = (n: number) => (n === 1 ? "1 persona" : `${n} personas`);
 
 export default function Review({
   letter,
+  categories,
   answers,
   invalid,
   votes,
@@ -57,7 +58,7 @@ export default function Review({
 
   // Votaciones abiertas, en el orden de la tabla.
   const disputes = ids.flatMap((id) =>
-    CATEGORIES.filter(({ key }) => votes[invalidKey(id, key)]).map(({ key }) => ({ id, cat: key })),
+    categories.filter((key) => votes[invalidKey(id, key)]).map((key) => ({ id, cat: key })),
   );
   const running = Object.values(votes).filter((t) => !voteClosed(t, now));
   const waitSecs = running.length ? Math.max(1, Math.ceil((Math.max(...running.map((t) => t.endsAt)) - now) / 1000)) : 0;
@@ -84,13 +85,16 @@ export default function Review({
         <p className="rounded-xl border border-line bg-card p-6 text-muted">Nadie mandó respuestas en esta ronda.</p>
       ) : (
         <div className="-mx-4 overflow-x-auto px-4">
-          <table className="w-full min-w-[640px] border-separate border-spacing-0 text-left">
+          <table
+            className="w-full border-separate border-spacing-0 text-left"
+            style={{ minWidth: 200 + categories.length * 110 }}
+          >
             <thead>
               <tr className="text-xs uppercase tracking-wide text-muted">
                 <th className="py-2 pr-3 font-medium">Jugador</th>
-                {CATEGORIES.map((c) => (
-                  <th key={c.key} className="px-2 py-2 font-medium">
-                    {c.label}
+                {categories.map((key) => (
+                  <th key={key} className="px-2 py-2 font-medium">
+                    {categoryLabel(key)}
                   </th>
                 ))}
                 <th className="py-2 pl-2 text-right font-medium">Ronda</th>
@@ -103,7 +107,7 @@ export default function Review({
                     {nameOf(id)}
                     {id === me && <span className="ml-1 text-xs font-normal text-muted">(vos)</span>}
                   </td>
-                  {CATEGORIES.map(({ key }) => {
+                  {categories.map((key) => {
                     const text = answers[id]?.[key]?.trim() ?? "";
                     const k = invalidKey(id, key);
                     const isInv = inv.has(k);
@@ -180,7 +184,7 @@ export default function Review({
                       </p>
                       <p className="text-sm text-muted">
                         {nameOf(id)}
-                        {isAuthor && " (vos)"} · {labelOf(cat)}
+                        {isAuthor && " (vos)"} · {categoryLabel(cat)}
                       </p>
                     </div>
                     <span
