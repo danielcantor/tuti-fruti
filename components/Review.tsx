@@ -4,6 +4,7 @@ import {
   type Answers,
   type CategoryKey,
   type VoteTally,
+  MARK_MS,
   VOTE_MS,
   answerProblem,
   categoryLabel,
@@ -22,6 +23,8 @@ type Props = {
   preview: Record<string, Partial<Record<CategoryKey, number>>>;
   /** Hora del servidor, para la cuenta regresiva de las votaciones. */
   now: number;
+  /** Hasta cuándo se pueden marcar palabras para votar. */
+  markUntil: number | null;
   nameOf: (id: string) => string;
   me: string;
   onVote: (target: string, cat: CategoryKey, value: Vote) => void;
@@ -44,6 +47,7 @@ export default function Review({
   votes,
   preview,
   now,
+  markUntil,
   nameOf,
   me,
   onVote,
@@ -63,6 +67,9 @@ export default function Review({
   const running = Object.values(votes).filter((t) => !voteClosed(t, now));
   const waitSecs = running.length ? Math.max(1, Math.ceil((Math.max(...running.map((t) => t.endsAt)) - now) / 1000)) : 0;
 
+  const markLeft = markUntil === null ? 0 : Math.max(0, markUntil - now);
+  const canMark = markLeft > 0;
+
   const onCell = (id: string, cat: CategoryKey) => {
     if (votes[invalidKey(id, cat)]) {
       document.getElementById(anchor(id, cat))?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -76,9 +83,27 @@ export default function Review({
       <div>
         <h2 className="font-display text-3xl font-extrabold tracking-tight">Revisión de la letra {letter}</h2>
         <p className="mt-1 text-sm text-muted">
-          ¿Alguna no vale? Tocala para llevarla a votación. El voto es anónimo y hay {VOTE_MS / 1000} segundos para
-          votar. Se anula si hay más votos de «no vale» que de «vale»; si empatan, queda. Quien la escribió no vota.
+          ¿Alguna no vale? Tocala para llevarla a votación (en los primeros {MARK_MS / 1000} segundos). El voto es
+          anónimo y cada votación dura {VOTE_MS / 1000} segundos. Se anula si hay más votos de «no vale» que de
+          «vale»; si empatan, queda. Quien la escribió no vota.
         </p>
+        {canMark ? (
+          <div className="mt-3 flex max-w-sm flex-col gap-1" data-testid="mark-window">
+            <p className="text-sm font-semibold">
+              Podés marcar palabras durante <span className="tabular-nums">{Math.ceil(markLeft / 1000)}</span> s
+            </p>
+            <div className="h-1.5 overflow-hidden rounded-full bg-line" aria-hidden>
+              <div
+                className="h-full rounded-full bg-ink transition-[width] duration-200 ease-linear"
+                style={{ width: `${(markLeft / MARK_MS) * 100}%` }}
+              />
+            </div>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm font-semibold text-muted" data-testid="mark-window">
+            Ya no se pueden marcar más palabras.
+          </p>
+        )}
       </div>
 
       {ids.length === 0 ? (
@@ -115,7 +140,7 @@ export default function Review({
                     const problem = text ? answerProblem(text, letter, key) : null;
                     const disputed = !!votes[k];
                     const t = votes[k];
-                    const canAct = !!text && !problem && (disputed || id !== me);
+                    const canAct = !!text && !problem && (disputed || (id !== me && canMark));
                     return (
                       <td key={key} className="border-t border-line px-1 py-2">
                         <button
@@ -124,7 +149,13 @@ export default function Review({
                           onClick={() => onCell(id, key)}
                           title={
                             problem ??
-                            (disputed ? "Ver la votación" : id === me ? "Es tu respuesta" : "Llevar a votación")
+                            (disputed
+                              ? "Ver la votación"
+                              : id === me
+                                ? "Es tu respuesta"
+                                : canMark
+                                  ? "Llevar a votación"
+                                  : "Ya pasó el tiempo para marcar palabras")
                           }
                           className="group flex w-full items-start justify-between gap-2 rounded-lg px-2 py-1 text-left transition hover:bg-card disabled:cursor-default disabled:hover:bg-transparent"
                         >

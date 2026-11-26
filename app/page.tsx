@@ -20,6 +20,7 @@ import {
   STOP_MS,
   effectiveBastaAt,
   emptyAnswers,
+  markDeadline,
   gameCategories,
   roundCategories,
   roundDeadline,
@@ -441,6 +442,7 @@ function Table({ g }: { g: G }) {
               votes={state.votes ?? {}}
               preview={state.preview ?? {}}
               now={now || state.serverNow}
+              markUntil={markDeadline(game, now || state.serverNow)}
               nameOf={nameOf}
               me={me}
               onVote={(target, cat, value) => send({ type: "vote", target, cat, value })}

@@ -45,6 +45,7 @@ await sleep(1200);
 const card = (p, cat = "color") => p.locator(`li[data-vote$="|${cat}"]`);
 const closeBtn = () => a.getByRole("button", { name: "Sumar puntos y volver a la ruleta" });
 
+check((await b.getByTestId("mark-window").textContent()).includes("Podés marcar palabras durante"), "al empezar la revisión se pueden marcar palabras");
 // Beto cuestiona el color de Ana
 await b.getByRole("button", { name: new RegExp(`^${L}olorcito`) }).click();
 await card(a).waitFor({ timeout: 5000 });
@@ -75,6 +76,8 @@ await b.screenshot({ path: `${OUT}/votos-2-abierta-mobile.png`, fullPage: true }
 await card(a, "lugar").getByText("Votación cerrada").waitFor({ timeout: 25000 });
 check((await card(a, "lugar").textContent()).includes("Anulada"), "a los 20 s se cierra con el resultado que tenga");
 check(await closeBtn().isEnabled(), "sin votaciones abiertas se puede pasar de ronda");
+check((await c.getByTestId("mark-window").textContent()).includes("Ya no se pueden marcar"), "después de 20 s ya no se pueden marcar palabras");
+check(await c.getByRole("button", { name: new RegExp(`^${L}color b`) }).isDisabled(), "las palabras sin votación quedan bloqueadas");
 await a.screenshot({ path: `${OUT}/votos-3-cerradas-desktop.png`, fullPage: true });
 
 await closeBtn().click();

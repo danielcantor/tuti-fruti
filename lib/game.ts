@@ -309,6 +309,14 @@ export function invalidFromVotes(votes: Votes, voters?: Set<string>): string[] {
 
 /** Cuánto dura cada votación. */
 export const VOTE_MS = 20_000;
+/** Al empezar la revisión, cuánto tiempo hay para marcar palabras y abrir votaciones. */
+export const MARK_MS = 20_000;
+
+/** Hasta cuándo se pueden marcar palabras: 20 s desde que empieza la revisión. */
+export function markDeadline(game: Pick<Game, "status" | "spinAt" | "bastaAt">, now: number): number | null {
+  const basta = effectiveBastaAt(game, now);
+  return basta === null ? null : basta + STOP_MS + MARK_MS;
+}
 
 /**
  * Lo que ve cada jugador de una votación: los totales y su propio voto,

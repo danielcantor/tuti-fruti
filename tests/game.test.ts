@@ -5,6 +5,7 @@ import {
   SPIN_MS,
   STOP_MS,
   VOTE_MS,
+  MARK_MS,
   answerProblem,
   cleanCategories,
   derivePhase,
@@ -233,6 +234,40 @@ describe("votación de respuestas", () => {
     expect(s.results[0].votes).toEqual({ [`${A}|color`]: { no: 1, yes: 1 }, [`${B}|lugar`]: { no: 1, yes: 0 } });
     expect(JSON.stringify(s.results)).not.toMatch(/"(bbbbbbbb-2222|cccccccc-3333)":(true|false)/);
     expect(s.votes).toEqual({});
+    vi.useRealTimers();
+  });
+});
+
+describe("tiempo para marcar palabras", () => {
+  it("solo se abren votaciones en los primeros 20 s; las abiertas terminan igual", async () => {
+    setStore(createMemoryStore());
+    vi.useFakeTimers();
+    vi.setSystemTime(5_000_000);
+    const [A, B, C] = ["aaaaaaaa-1111", "bbbbbbbb-2222", "cccccccc-3333"];
+    for (const [id, n] of [[A, "Ana"], [B, "Beto"], [C, "Caro"]]) await act({ type: "join", playerId: id, name: n });
+    await act({ type: "spin", playerId: A });
+    vi.advanceTimersByTime(400 + SPIN_MS);
+    const st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    const L = st.game.letter!;
+    const full = (x: string) => ({ nombre: L + "ana" + x, serie: L + "ola" + x, lugar: L + "ola" + x, color: L + "ojo" + x, marca: L + "ola" + x });
+    await act({ type: "basta", playerId: A, answers: full("a") });
+    await act({ type: "answer", playerId: B, answers: full("b") });
+    vi.advanceTimersByTime(STOP_MS); // empieza la revisión
+
+    vi.advanceTimersByTime(MARK_MS - 1000);
+    await act({ type: "vote", playerId: B, target: A, cat: "color", value: "no" }); // al segundo 19: entra
+    vi.advanceTimersByTime(1000);
+    await expect(act({ type: "vote", playerId: B, target: A, cat: "lugar", value: "no" })).rejects.toThrow(
+      "20 segundos para marcar",
+    );
+    // La que ya estaba abierta se sigue votando y bloquea el pase de ronda.
+    await expect(act({ type: "closeRound", playerId: A })).rejects.toThrow("votación en curso");
+    await act({ type: "vote", playerId: C, target: A, cat: "color", value: "no" });
+    await act({ type: "closeRound", playerId: A });
+    const end = await getState(A, null);
+    if ("same" in end) throw new Error();
+    expect(end.results[0].invalid).toEqual([`${A}|color`]);
     vi.useRealTimers();
   });
 });

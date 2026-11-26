@@ -20,6 +20,7 @@ import {
   cleanCategories,
   gameCategories,
   initialGame,
+  markDeadline,
   pickCategories,
   roundCategories,
   invalidFromVotes,
@@ -431,6 +432,9 @@ export async function act(body: unknown): Promise<void> {
       const t = tallies[k];
       if (t && voteClosed(t, now)) throw new GameError("Esa votación ya cerró");
       if (!t && a.value !== "no") throw new GameError("Nadie cuestionó esa respuesta", 400);
+      if (!t && now >= (markDeadline(game, now) ?? 0)) {
+        throw new GameError("Ya pasaron los 20 segundos para marcar palabras");
+      }
 
       const key = K.votes(game.round);
       const field = `${k}|${a.playerId}`;

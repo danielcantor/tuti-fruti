@@ -7,8 +7,8 @@ Excusa para llegar tarde; por defecto las cinco primeras) o al azar: en cada ron
 de 3 a 6 de las que marque el dueño (por defecto, 5 de las 13), botón **¡Basta!** con cuenta regresiva de 5 s,
 revisión con votación para anular respuestas y tabla de puntos acumulada.
 
-Votación: en la revisión, cualquiera toca una respuesta que le parece que no vale y la lleva a
-votación. El voto es anónimo: se ven los totales, cuántas personas faltan votar y el voto propio,
+Votación: en los primeros 20 segundos de la revisión, cualquiera toca una respuesta que le parece
+que no vale y la lleva a votación (después ya no se abren votaciones nuevas). El voto es anónimo: se ven los totales, cuántas personas faltan votar y el voto propio,
 nunca quién votó qué. Cada votación dura 20 segundos o hasta que votaron todos los conectados. Se
 anula si hay más votos de «no vale» que de «vale»; si empatan, queda. Quien la escribió no vota y
 los votos de quien se fue de la sala no cuentan. Mientras haya una votación abierta, el dueño no
