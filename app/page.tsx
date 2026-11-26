@@ -332,7 +332,7 @@ function Table({ g }: { g: G }) {
               invalid={state.invalid}
               votes={state.votes ?? {}}
               preview={state.preview ?? {}}
-              online={players.filter((p) => p.online).map((p) => p.id)}
+              now={now || state.serverNow}
               nameOf={nameOf}
               me={me}
               onVote={(target, cat, value) => send({ type: "vote", target, cat, value })}

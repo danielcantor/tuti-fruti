@@ -37,8 +37,8 @@ export type RoundResult = {
   answers?: Record<string, Answers>;
   /** Respuestas anuladas, como "playerId|categoria". */
   invalid?: string[];
-  /** Cómo votó cada uno las respuestas cuestionadas (no está en partidas viejas). */
-  votes?: Votes;
+  /** Resultado de las votaciones de la ronda, sin decir quién votó qué (no está en partidas viejas). */
+  votes?: Record<string, { no: number; yes: number }>;
   /** Quién cantó ¡Basta! (null si se cortó por tiempo). */
   bastaBy?: string | null;
 };
@@ -229,6 +229,27 @@ export function invalidFromVotes(votes: Votes, voters?: Set<string>): string[] {
   return out.sort();
 }
 
+/** Cuánto dura cada votación. */
+export const VOTE_MS = 20_000;
+
+/**
+ * Lo que ve cada jugador de una votación: los totales y su propio voto,
+ * nunca quién votó qué.
+ */
+export type VoteTally = {
+  no: number;
+  yes: number;
+  mine: "si" | "no" | null;
+  /** Conectados que pueden votar y todavía no votaron. */
+  pending: number;
+  /** Hora en que se cierra sola. */
+  endsAt: number;
+  /** Ya votaron todos los que podían. */
+  done: boolean;
+};
+
+export const voteClosed = (t: Pick<VoteTally, "endsAt" | "done">, now: number) => t.done || now >= t.endsAt;
+
 /** Convierte el hash guardado ("autor|cat|votante" -> "no"/"si") en Votes. */
 export function parseVotes(h: Record<string, string>): Votes {
   const out: Votes = {};
@@ -327,8 +348,8 @@ export type ClientState = {
   /** En revisión: las de todos. Antes: solo las del que pregunta. */
   answers: Record<string, Answers>;
   invalid: string[];
-  /** Votaciones abiertas de la revisión (vacío fuera de la revisión). */
-  votes: Votes;
+  /** Votaciones de la revisión, "playerId|categoria" -> totales (vacío fuera de la revisión). */
+  votes: Record<string, VoteTally>;
   results: RoundResult[];
   totals: Record<string, number>;
   /** Puntos en vivo de la ronda en revisión. */

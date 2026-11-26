@@ -3,10 +3,12 @@
 import {
   type Answers,
   type CategoryKey,
-  type Votes,
+  type VoteTally,
   CATEGORIES,
+  VOTE_MS,
   answerProblem,
   invalidKey,
+  voteClosed,
 } from "@/lib/game";
 
 type Vote = "si" | "no" | null;
@@ -15,10 +17,10 @@ type Props = {
   letter: string;
   answers: Record<string, Answers>;
   invalid: string[];
-  votes: Votes;
+  votes: Record<string, VoteTally>;
   preview: Record<string, Partial<Record<CategoryKey, number>>>;
-  /** Jugadores conectados, en orden de llegada (para saber a quién le falta votar). */
-  online: string[];
+  /** Hora del servidor, para la cuenta regresiva de las votaciones. */
+  now: number;
   nameOf: (id: string) => string;
   me: string;
   onVote: (target: string, cat: CategoryKey, value: Vote) => void;
@@ -32,8 +34,7 @@ const badge = (p: number) =>
 
 const labelOf = (cat: CategoryKey) => CATEGORIES.find((c) => c.key === cat)?.label ?? cat;
 const anchor = (id: string, cat: CategoryKey) => `voto-${id}-${cat}`;
-const list = (names: string[]) =>
-  names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} y ${names[names.length - 1]}`;
+const people = (n: number) => (n === 1 ? "1 persona" : `${n} personas`);
 
 export default function Review({
   letter,
@@ -41,7 +42,7 @@ export default function Review({
   invalid,
   votes,
   preview,
-  online,
+  now,
   nameOf,
   me,
   onVote,
@@ -54,18 +55,12 @@ export default function Review({
   const sum = (id: string) => Object.values(preview[id] ?? {}).reduce((a, b) => a + (b ?? 0), 0);
   ids.sort((a, b) => sum(b) - sum(a));
 
-  const tally = (key: string) => {
-    const byVoter = votes[key] ?? {};
-    const author = key.split("|")[0];
-    const no = Object.keys(byVoter).filter((v) => v !== author && !byVoter[v]);
-    const yes = Object.keys(byVoter).filter((v) => v !== author && byVoter[v]);
-    return { no, yes, mine: byVoter[me] === undefined ? null : byVoter[me] ? "si" : "no" };
-  };
-
   // Votaciones abiertas, en el orden de la tabla.
-  const open = ids.flatMap((id) =>
+  const disputes = ids.flatMap((id) =>
     CATEGORIES.filter(({ key }) => votes[invalidKey(id, key)]).map(({ key }) => ({ id, cat: key })),
   );
+  const running = Object.values(votes).filter((t) => !voteClosed(t, now));
+  const waitSecs = running.length ? Math.max(1, Math.ceil((Math.max(...running.map((t) => t.endsAt)) - now) / 1000)) : 0;
 
   const onCell = (id: string, cat: CategoryKey) => {
     if (votes[invalidKey(id, cat)]) {
@@ -80,8 +75,8 @@ export default function Review({
       <div>
         <h2 className="font-display text-3xl font-extrabold tracking-tight">Revisión de la letra {letter}</h2>
         <p className="mt-1 text-sm text-muted">
-          ¿Alguna no vale? Tocala para llevarla a votación. Se anula si hay más votos de «no vale» que de «vale»; si
-          empatan, queda. Quien la escribió no vota.
+          ¿Alguna no vale? Tocala para llevarla a votación. El voto es anónimo y hay {VOTE_MS / 1000} segundos para
+          votar. Se anula si hay más votos de «no vale» que de «vale»; si empatan, queda. Quien la escribió no vota.
         </p>
       </div>
 
@@ -115,7 +110,7 @@ export default function Review({
                     const p = preview[id]?.[key] ?? 0;
                     const problem = text ? answerProblem(text, letter, key) : null;
                     const disputed = !!votes[k];
-                    const t = disputed ? tally(k) : null;
+                    const t = votes[k];
                     const canAct = !!text && !problem && (disputed || id !== me);
                     return (
                       <td key={key} className="border-t border-line px-1 py-2">
@@ -136,7 +131,7 @@ export default function Review({
                             {problem && <span className="text-[0.7rem] leading-tight text-accent">{problem}</span>}
                             {t && (
                               <span className={`text-[0.7rem] leading-tight ${isInv ? "text-accent" : "text-muted"}`}>
-                                En votación · {t.no.length} no, {t.yes.length} sí
+                                {voteClosed(t, now) ? "Votada" : "En votación"} · {t.no} no, {t.yes} sí
                               </span>
                             )}
                           </span>
@@ -157,19 +152,20 @@ export default function Review({
         </div>
       )}
 
-      {open.length > 0 && (
+      {disputes.length > 0 && (
         <div className="flex flex-col gap-3">
           <h3 className="font-display text-xl font-extrabold tracking-tight">
-            Votaciones <span className="text-muted">({open.length})</span>
+            Votaciones <span className="text-muted">({disputes.length})</span>
           </h3>
           <ul className="grid gap-3 sm:grid-cols-2">
-            {open.map(({ id, cat }) => {
+            {disputes.map(({ id, cat }) => {
               const k = invalidKey(id, cat);
-              const { no, yes, mine } = tally(k);
+              const t = votes[k];
+              const closed = voteClosed(t, now);
+              const left = Math.max(0, t.endsAt - now);
               const annulled = inv.has(k);
-              const pending = online.filter((v) => v !== id && !no.includes(v) && !yes.includes(v));
               const isAuthor = id === me;
-              const vote = (v: "si" | "no") => onVote(id, cat, mine === v ? null : v);
+              const vote = (v: "si" | "no") => onVote(id, cat, t.mine === v ? null : v);
               return (
                 <li
                   key={k}
@@ -192,49 +188,64 @@ export default function Review({
                         annulled ? "bg-accent text-accent-ink" : "bg-ok/15 text-ok"
                       }`}
                     >
-                      {annulled ? "Anulada" : "Vale"}
+                      {closed ? (annulled ? "Anulada" : "Vale") : annulled ? "Por ahora no vale" : "Por ahora vale"}
                     </span>
                   </div>
 
-                  <dl className="grid gap-1 text-sm">
-                    <div className="flex gap-2">
-                      <dt className="w-20 shrink-0 font-semibold">No vale ({no.length})</dt>
-                      <dd className="text-muted">{no.length ? list(no.map(nameOf)) : "—"}</dd>
-                    </div>
-                    <div className="flex gap-2">
-                      <dt className="w-20 shrink-0 font-semibold">Vale ({yes.length})</dt>
-                      <dd className="text-muted">{yes.length ? list(yes.map(nameOf)) : "—"}</dd>
-                    </div>
-                    {pending.length > 0 && (
-                      <div className="flex gap-2">
-                        <dt className="w-20 shrink-0 font-semibold">Faltan</dt>
-                        <dd className="text-muted">{list(pending.map(nameOf))}</dd>
-                      </div>
+                  <p className="flex gap-4 text-sm">
+                    <span>
+                      <strong className="tabular-nums">{t.no}</strong> no vale
+                    </span>
+                    <span>
+                      <strong className="tabular-nums">{t.yes}</strong> vale
+                    </span>
+                    {!closed && t.pending > 0 && (
+                      <span className="text-muted">Faltan votar {people(t.pending)}</span>
                     )}
-                  </dl>
+                  </p>
 
-                  {isAuthor ? (
-                    <p className="text-sm text-muted">Es tu respuesta: no votás en esta.</p>
+                  {closed ? (
+                    <p className="text-sm text-muted">
+                      Votación cerrada{t.done && left > 0 ? ": ya votaron todos" : ""}.
+                    </p>
                   ) : (
-                    <div className="flex gap-2" role="group" aria-label="Tu voto">
-                      {(["si", "no"] as const).map((v) => (
-                        <button
-                          key={v}
-                          type="button"
-                          aria-pressed={mine === v}
-                          onClick={() => vote(v)}
-                          className={`flex-1 rounded-xl border px-3 py-2 text-sm font-semibold transition active:translate-y-px ${
-                            mine === v
-                              ? v === "si"
-                                ? "border-ok bg-ok text-paper"
-                                : "border-accent bg-accent text-accent-ink"
-                              : "border-line hover:border-ink"
-                          }`}
-                        >
-                          {v === "si" ? "Vale" : "No vale"}
-                        </button>
-                      ))}
+                    <div className="flex flex-col gap-1">
+                      <div className="h-1.5 overflow-hidden rounded-full bg-line" aria-hidden>
+                        <div
+                          className="h-full rounded-full bg-accent transition-[width] duration-200 ease-linear"
+                          style={{ width: `${(left / VOTE_MS) * 100}%` }}
+                        />
+                      </div>
+                      <p className="text-xs tabular-nums text-muted">Quedan {Math.ceil(left / 1000)} s</p>
                     </div>
+                  )}
+
+                  {!closed &&
+                    (isAuthor ? (
+                      <p className="text-sm text-muted">Es tu respuesta: no votás en esta.</p>
+                    ) : (
+                      <div className="flex gap-2" role="group" aria-label="Tu voto">
+                        {(["si", "no"] as const).map((v) => (
+                          <button
+                            key={v}
+                            type="button"
+                            aria-pressed={t.mine === v}
+                            onClick={() => vote(v)}
+                            className={`flex-1 rounded-xl border px-3 py-2 text-sm font-semibold transition active:translate-y-px ${
+                              t.mine === v
+                                ? v === "si"
+                                  ? "border-ok bg-ok text-paper"
+                                  : "border-accent bg-accent text-accent-ink"
+                                : "border-line hover:border-ink"
+                            }`}
+                          >
+                            {v === "si" ? "Vale" : "No vale"}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  {closed && t.mine && (
+                    <p className="text-xs text-muted">Votaste «{t.mine === "si" ? "vale" : "no vale"}».</p>
                   )}
                 </li>
               );
@@ -248,12 +259,16 @@ export default function Review({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-2xl bg-ink px-6 py-3 font-semibold text-paper transition hover:opacity-90 active:translate-y-px"
+            disabled={running.length > 0}
+            className="rounded-2xl bg-ink px-6 py-3 font-semibold text-paper transition hover:opacity-90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
           >
             Sumar puntos y volver a la ruleta
           </button>
-          {open.length > 0 && (
-            <p className="text-sm text-muted">Las votaciones se cierran con el resultado que tengan en ese momento.</p>
+          {running.length > 0 && (
+            <p className="text-sm text-muted">
+              Hay {running.length === 1 ? "una votación" : `${running.length} votaciones`} en curso. Podés seguir en{" "}
+              <span className="tabular-nums">{waitSecs}</span> s.
+            </p>
           )}
         </div>
       ) : (

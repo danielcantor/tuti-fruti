@@ -4,6 +4,7 @@ import {
   type ChatMessage,
   type ClientState,
   type Game,
+  type VoteTally,
   type Votes,
   CATEGORIES,
   CHAT_MAX_LEN,
@@ -11,6 +12,7 @@ import {
   PRESENCE_TIMEOUT_MS,
   ROUND_OPTIONS,
   STOP_MS,
+  VOTE_MS,
   derivePhase,
   effectiveBastaAt,
   answerProblem,
@@ -21,6 +23,7 @@ import {
   parseVotes,
   pickLetter,
   roomRoles,
+  voteClosed,
   sanitizeAnswers,
   scoreRound,
   totals,
@@ -40,6 +43,8 @@ const K = {
   present: `${P}present`,
   answers: (round: number) => `${P}answers:${round}`,
   votes: (round: number) => `${P}votes:${round}`,
+  /** "playerId|categoria" -> hora en que se abrió la votación. */
+  opened: (round: number) => `${P}opened:${round}`,
 };
 
 const CHAT_KEEP = 100;
@@ -131,17 +136,42 @@ export async function heartbeat(playerId: string): Promise<void> {
   if (changed) await store.incr(K.ver);
 }
 
-/** Votos de la ronda y las respuestas que quedan anuladas por mayoría. */
-async function loadVotes(round: number, playerIds: string[]): Promise<{ votes: Votes; invalid: string[] }> {
-  const ids = new Set(playerIds);
-  const all = parseVotes(await getStore().hgetall(K.votes(round)));
-  // Los votos de quien se fue de la sala no se muestran ni cuentan.
+type RoomInfo = { players: { id: string; online: boolean }[] };
+
+/**
+ * Votaciones de la ronda: los totales que ve `viewer` (sin decir quién votó
+ * qué), las respuestas anuladas por mayoría y las votaciones todavía abiertas.
+ */
+async function loadVotes(round: number, room: RoomInfo, viewer: string | null, now: number) {
+  const store = getStore();
+  const [votesH, openedH] = await Promise.all([store.hgetall(K.votes(round)), store.hgetall(K.opened(round))]);
+  const ids = new Set(room.players.map((p) => p.id));
+  const online = room.players.filter((p) => p.online).map((p) => p.id);
+  const all = parseVotes(votesH);
+  // Los votos de quien se fue de la sala no cuentan.
   const votes: Votes = {};
-  for (const [key, byVoter] of Object.entries(all)) {
-    const kept = Object.fromEntries(Object.entries(byVoter).filter(([v]) => ids.has(v)));
-    if (Object.values(kept).some((ok) => !ok)) votes[key] = kept;
+  const tallies: Record<string, VoteTally> = {};
+  const open: string[] = [];
+  for (const [key, at] of Object.entries(openedH)) {
+    const author = key.split("|")[0];
+    const byVoter = Object.fromEntries(
+      Object.entries(all[key] ?? {}).filter(([v]) => ids.has(v) && v !== author),
+    );
+    votes[key] = byVoter;
+    const pending = online.filter((v) => v !== author && !(v in byVoter)).length;
+    const mine = viewer && viewer in byVoter ? (byVoter[viewer] ? "si" : "no") : null;
+    const t: VoteTally = {
+      no: Object.values(byVoter).filter((ok) => !ok).length,
+      yes: Object.values(byVoter).filter((ok) => ok).length,
+      mine,
+      pending,
+      endsAt: Number(at) + VOTE_MS,
+      done: pending === 0,
+    };
+    tallies[key] = t;
+    if (!voteClosed(t, now)) open.push(key);
   }
-  return { votes, invalid: invalidFromVotes(votes, ids) };
+  return { tallies, votes, open, invalid: invalidFromVotes(votes, ids) };
 }
 
 /** Jugadores con hora de llegada y conexión, y los roles de la sala. */
@@ -190,13 +220,13 @@ export async function getState(
 
   let answers: Record<string, Answers> = {};
   let invalid: string[] = [];
-  let votes: Votes = {};
+  let votes: ClientState["votes"] = {};
   let preview: ClientState["preview"] = null;
   if (game.round > 0) {
     const all = parseHash<Answers>(await store.hgetall(K.answers(game.round)));
     if (phase === "review") {
       answers = all;
-      ({ votes, invalid } = await loadVotes(game.round, room.players.map((p) => p.id)));
+      ({ tallies: votes, invalid } = await loadVotes(game.round, room, playerId, now));
       preview = scoreRound(game.letter ?? "", all, new Set(invalid));
     } else if (playerId && all[playerId] && phase !== "lobby") {
       answers = { [playerId]: all[playerId] };
@@ -359,17 +389,27 @@ export async function act(body: unknown): Promise<void> {
       if (answerProblem(answer, game.letter ?? "", a.cat)) {
         throw new GameError("Esa respuesta ya no vale sola, no hace falta votarla", 400);
       }
+      const k = invalidKey(a.target, a.cat);
+      const room = await loadRoom(game);
+      const now = Date.now();
+      const { tallies } = await loadVotes(game.round, room, a.playerId, now);
+      const t = tallies[k];
+      if (t && voteClosed(t, now)) throw new GameError("Esa votación ya cerró");
+      if (!t && a.value !== "no") throw new GameError("Nadie cuestionó esa respuesta", 400);
+
       const key = K.votes(game.round);
-      const field = `${invalidKey(a.target, a.cat)}|${a.playerId}`;
-      if (a.value === null) {
-        await store.hdel(key, field);
+      const field = `${k}|${a.playerId}`;
+      if (a.value === null) await store.hdel(key, field);
+      else await store.hset(key, field, a.value);
+      if (a.value === "no") {
+        await store.hsetnx(K.opened(game.round), k, String(now));
       } else {
-        if (a.value === "si") {
-          // "Vale" solo tiene sentido si alguien la cuestionó.
-          const open = Object.values(parseVotes(await store.hgetall(key))[invalidKey(a.target, a.cat)] ?? {});
-          if (!open.some((ok) => !ok)) throw new GameError("Nadie cuestionó esa respuesta", 400);
+        // Si ya nadie dice que no vale, la votación se cae (y se puede volver a abrir).
+        const left = parseVotes(await store.hgetall(key))[k] ?? {};
+        if (!Object.values(left).some((ok) => !ok)) {
+          await store.hdel(K.opened(game.round), k);
+          for (const v of Object.keys(left)) await store.hdel(key, `${k}|${v}`);
         }
-        await store.hset(key, field, a.value);
       }
       await store.incr(K.ver);
       return;
@@ -380,10 +420,17 @@ export async function act(body: unknown): Promise<void> {
       await requireOwner("sumar los puntos y cerrar la ronda");
       const { game } = await readGame();
       const room = await loadRoom(game);
-      const [answersH, { votes: roundVotes, invalid: roundInvalid }] = await Promise.all([
+      const [answersH, { tallies, open, invalid: roundInvalid }] = await Promise.all([
         store.hgetall(K.answers(game.round)),
-        loadVotes(game.round, room.players.map((p) => p.id)),
+        loadVotes(game.round, room, null, Date.now()),
       ]);
+      if (open.length > 0) {
+        const secs = Math.ceil((Math.max(...open.map((k) => tallies[k].endsAt)) - Date.now()) / 1000);
+        throw new GameError(`Hay una votación en curso. Esperá a que termine (${secs} s).`);
+      }
+      const roundVotes = Object.fromEntries(
+        Object.entries(tallies).map(([k, { no, yes }]) => [k, { no, yes }]),
+      );
       const roundAnswers = parseHash<Answers>(answersH);
       const points = scoreRound(game.letter ?? "", roundAnswers, new Set(roundInvalid));
       await mutateGame((g, now) => {
@@ -417,7 +464,7 @@ export async function act(body: unknown): Promise<void> {
       await requirePlayer();
       await requireOwner("empezar una partida nueva");
       const keys = (
-        await Promise.all([`${P}answers:*`, `${P}votes:*`, `${P}invalid:*`].map((k) => store.keys(k)))
+        await Promise.all([`${P}answers:*`, `${P}votes:*`, `${P}opened:*`, `${P}invalid:*`].map((k) => store.keys(k)))
       ).flat();
       await store.del(...keys);
       await mutateGame((g) => ({ ...initialGame(), maxRounds: g.maxRounds ?? null }));

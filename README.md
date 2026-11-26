@@ -5,9 +5,11 @@ Tuti Fruti multijugador para jugar con la oficina: ruleta de letras compartida, 
 revisión con votación para anular respuestas y tabla de puntos acumulada.
 
 Votación: en la revisión, cualquiera toca una respuesta que le parece que no vale y la lleva a
-votación. Todos ven quién votó «vale», quién votó «no vale» y a quién le falta votar. Se anula si
-hay más votos de «no vale» que de «vale»; si empatan, queda. Quien la escribió no vota, y los
-votos de quien se fue de la sala no cuentan. Al cerrar la ronda vale el resultado de ese momento.
+votación. El voto es anónimo: se ven los totales, cuántas personas faltan votar y el voto propio,
+nunca quién votó qué. Cada votación dura 20 segundos o hasta que votaron todos los conectados. Se
+anula si hay más votos de «no vale» que de «vale»; si empatan, queda. Quien la escribió no vota y
+los votos de quien se fue de la sala no cuentan. Mientras haya una votación abierta, el dueño no
+puede pasar a la próxima ronda.
 
 Antes de la primera ronda se elige cuántas rondas jugar (3, 5, 10 o sin límite); al terminar
 aparece el ganador. Cortes automáticos para que nada quede colgado: si nadie canta ¡Basta! en

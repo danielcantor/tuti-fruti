@@ -4,6 +4,7 @@ import {
   ROUND_MS,
   SPIN_MS,
   STOP_MS,
+  VOTE_MS,
   answerProblem,
   derivePhase,
   roomRoles,
@@ -157,7 +158,7 @@ describe("votación de respuestas", () => {
     });
   });
 
-  it("tres jugadores: cuestionar, empatar, desempatar y retirar el voto", async () => {
+  it("tres jugadores: voto anónimo, 20 s para votar y no se cierra la ronda con votaciones abiertas", async () => {
     setStore(createMemoryStore());
     vi.useFakeTimers();
     vi.setSystemTime(2_000_000);
@@ -170,52 +171,65 @@ describe("votación de respuestas", () => {
     const st = await getState(A, null);
     if ("same" in st) throw new Error();
     const L = st.game.letter!;
-    const full = (x: string) => ({ nombre: L + "ana" + x, serie: L + "ola", lugar: L + "ola", color: L + "ojo" + x, marca: L + "ola" });
+    const full = (x: string) => ({
+      nombre: L + "ana" + x,
+      serie: L + "ola" + x,
+      lugar: L + "ola" + x,
+      color: L + "ojo" + x,
+      marca: L + "ola" + x,
+    });
     await act({ type: "basta", playerId: A, answers: full("a") });
     await act({ type: "answer", playerId: B, answers: full("b") });
     await act({ type: "answer", playerId: C, answers: full("c") });
 
-    const vote = (playerId: string, value: "si" | "no" | null, target = A) =>
-      act({ type: "vote", playerId, target, cat: "color", value });
-    await expect(vote(B, "no")).rejects.toThrow("revisión");
+    const vote = (playerId: string, target: string, cat: "color" | "lugar" | "serie", value: "si" | "no" | null) =>
+      act({ type: "vote", playerId, target, cat, value });
+    await expect(vote(B, A, "color", "no")).rejects.toThrow("revisión");
     vi.advanceTimersByTime(STOP_MS);
 
-    const view = async () => {
-      const s = await getState(A, null);
+    const view = async (who: string) => {
+      const s = await getState(who, null);
       if ("same" in s) throw new Error();
       return s;
     };
-    await expect(vote(A, "no")).rejects.toThrow("propia");
-    await expect(vote(B, "si")).rejects.toThrow("Nadie cuestionó");
+    await expect(vote(A, A, "color", "no")).rejects.toThrow("propia");
+    await expect(vote(B, A, "color", "si")).rejects.toThrow("Nadie cuestionó");
 
-    await vote(B, "no");
-    let s = await view();
-    expect(s.votes[`${A}|color`]).toEqual({ [B]: false });
+    // Beto cuestiona: Caro ve los totales, no quién votó.
+    await vote(B, A, "color", "no");
+    let s = await view(C);
+    expect(s.votes[`${A}|color`]).toMatchObject({ no: 1, yes: 0, mine: null, pending: 1, done: false });
+    expect(JSON.stringify(s.votes)).not.toContain(B);
+    expect((await view(B)).votes[`${A}|color`].mine).toBe("no");
     expect(s.invalid).toEqual([`${A}|color`]);
-    expect(s.preview![A].color).toBe(0);
 
-    await vote(C, "si"); // empate: queda
-    s = await view();
+    // Con la votación abierta no se pasa a la próxima ronda.
+    await expect(act({ type: "closeRound", playerId: A })).rejects.toThrow("votación en curso");
+
+    // Caro vota "vale": ya votaron todos, se cierra con empate y la respuesta queda.
+    await vote(C, A, "color", "si");
+    s = await view(A);
+    expect(s.votes[`${A}|color`]).toMatchObject({ no: 1, yes: 1, pending: 0, done: true });
     expect(s.invalid).toEqual([]);
-    expect(s.preview![A].color).toBe(10);
+    await expect(vote(B, A, "color", null)).rejects.toThrow("cerró");
 
-    await vote(C, "no"); // cambia de opinión: 2 a 0
-    expect((await view()).invalid).toEqual([`${A}|color`]);
+    // Retirar el único "no" hace caer la votación.
+    await vote(B, C, "serie", "no");
+    await vote(B, C, "serie", null);
+    expect((await view(A)).votes[`${C}|serie`]).toBeUndefined();
 
-    await vote(C, null);
-    await vote(B, null); // nadie la cuestiona: se cierra la votación
-    s = await view();
-    expect(s.votes).toEqual({});
-    expect(s.invalid).toEqual([]);
-
-    await vote(B, "no");
-    await vote(C, "no");
-    await act({ type: "leave", playerId: C }); // el voto de quien se fue no cuenta
-    await vote(B, "no", A);
+    // Caro cuestiona el lugar de Beto y Ana no vota: se cierra sola a los 20 s.
+    await vote(C, B, "lugar", "no");
+    vi.advanceTimersByTime(VOTE_MS - 1000);
+    await expect(act({ type: "closeRound", playerId: A })).rejects.toThrow("(1 s)");
+    vi.advanceTimersByTime(1000);
+    await expect(vote(A, B, "lugar", "si")).rejects.toThrow("cerró");
     await act({ type: "closeRound", playerId: A });
-    s = await view();
-    expect(s.results[0].invalid).toEqual([`${A}|color`]);
-    expect(s.results[0].votes).toEqual({ [`${A}|color`]: { [B]: false } });
+
+    s = await view(A);
+    expect(s.results[0].invalid).toEqual([`${B}|lugar`]);
+    expect(s.results[0].votes).toEqual({ [`${A}|color`]: { no: 1, yes: 1 }, [`${B}|lugar`]: { no: 1, yes: 0 } });
+    expect(JSON.stringify(s.results)).not.toMatch(/"(bbbbbbbb-2222|cccccccc-3333)":(true|false)/);
     expect(s.votes).toEqual({});
     vi.useRealTimers();
   });

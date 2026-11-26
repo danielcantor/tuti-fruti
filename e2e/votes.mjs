@@ -42,30 +42,42 @@ await a.getByRole("button", { name: "¡Basta!", exact: true }).click();
 for (const p of [a, b, c]) await p.getByText(`Revisión de la letra ${L}`).waitFor({ timeout: 15000 });
 await sleep(1200);
 
-const card = (p) => p.locator(`li[data-vote$="|color"]`);
+const card = (p, cat = "color") => p.locator(`li[data-vote$="|${cat}"]`);
+const closeBtn = () => a.getByRole("button", { name: "Sumar puntos y volver a la ruleta" });
+
 // Beto cuestiona el color de Ana
 await b.getByRole("button", { name: new RegExp(`^${L}olorcito`) }).click();
 await card(a).waitFor({ timeout: 5000 });
-check((await card(a).textContent()).includes("Anulada"), "con un voto en contra, queda anulada");
-check((await card(a).textContent()).includes("Es tu respuesta"), "Ana no puede votar la suya");
-check((await card(c).textContent()).includes("Faltan") && (await card(c).textContent()).includes("Caro"), "se ve que le falta votar a Caro");
-await a.screenshot({ path: `${OUT}/votos-1-anulada-desktop.png`, fullPage: true });
+let txt = await card(a).textContent();
+check(txt.includes("Por ahora no vale"), "con un voto en contra, por ahora no vale");
+check(!txt.includes("Beto"), "el voto es anónimo: no dice quién votó");
+check(txt.includes("Faltan votar 1 persona"), "muestra que falta votar una persona");
+check(/Quedan \d+ s/.test(txt), "muestra la cuenta regresiva");
+check(txt.includes("Es tu respuesta"), "Ana no puede votar la suya");
+check(await closeBtn().isDisabled(), "con una votación abierta no se puede pasar de ronda");
+await a.screenshot({ path: `${OUT}/votos-1-abierta-desktop.png`, fullPage: true });
+await c.screenshot({ path: `${OUT}/votos-1-abierta-tablet.png`, fullPage: true });
 
-// Caro dice que vale: empate, queda
+// Caro dice que vale: ya votaron todos, empate, queda
 await card(c).getByRole("button", { name: "Vale", exact: true }).click();
 await sleep(1800);
-const txt = await card(a).textContent();
-check(txt.includes("Vale (1)") && txt.includes("No vale (1)") && txt.includes("Caro") && txt.includes("Beto"), "se ve quién votó qué");
+txt = await card(a).textContent();
+check(txt.includes("Votación cerrada") && txt.includes("ya votaron todos"), "se cierra cuando votaron todos");
+check(!txt.includes("Caro") && !txt.includes("Beto"), "sigue sin decir quién votó");
 check(!(await a.locator("td .line-through", { hasText: `${L}olorcito` }).count()), "con empate la respuesta vale");
-await b.screenshot({ path: `${OUT}/votos-2-empate-mobile.png`, fullPage: true });
-await c.screenshot({ path: `${OUT}/votos-2-empate-tablet.png`, fullPage: true });
 
-// Caro cambia a "no vale": 2 a 0
-await card(c).getByRole("button", { name: "No vale" }).click();
-await sleep(1800);
-check((await card(a).textContent()).includes("Anulada"), "al cambiar el voto vuelve a quedar anulada");
+// Caro cuestiona el lugar de Beto y nadie más vota: se cierra sola a los 20 s
+await c.getByRole("button", { name: new RegExp(`^${L}lugar b`) }).click();
+await card(a, "lugar").waitFor({ timeout: 5000 });
+await sleep(1500);
+check(await closeBtn().isDisabled(), "otra votación abierta vuelve a bloquear el pase de ronda");
+await b.screenshot({ path: `${OUT}/votos-2-abierta-mobile.png`, fullPage: true });
+await card(a, "lugar").getByText("Votación cerrada").waitFor({ timeout: 25000 });
+check((await card(a, "lugar").textContent()).includes("Anulada"), "a los 20 s se cierra con el resultado que tenga");
+check(await closeBtn().isEnabled(), "sin votaciones abiertas se puede pasar de ronda");
+await a.screenshot({ path: `${OUT}/votos-3-cerradas-desktop.png`, fullPage: true });
 
-await a.getByRole("button", { name: "Sumar puntos y volver a la ruleta" }).click();
+await closeBtn().click();
 await sleep(1800);
 check(!(await a.getByText("Votaciones").count()), "al cerrar la ronda se terminan las votaciones");
 await browser.close();
