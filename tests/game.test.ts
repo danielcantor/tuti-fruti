@@ -8,6 +8,7 @@ import {
   answerProblem,
   cleanCategories,
   derivePhase,
+  pickCategories,
   roomRoles,
   initialGame,
   invalidFromVotes,
@@ -287,6 +288,71 @@ describe("categorías elegidas por el dueño", () => {
     const fresh = await getState(A, null);
     if ("same" in fresh) throw new Error();
     expect(fresh.game.categories).toEqual(["animal", "ropa", "excusa"]);
+    vi.useRealTimers();
+  });
+});
+
+describe("categorías al azar en cada ronda", () => {
+  it("valida el pozo y sortea sin repetir, en orden", () => {
+    const all = ["nombre", "serie", "lugar", "color", "marca", "animal"] as const;
+    expect(cleanCategories([...all], 5)).toEqual([...all]);
+    expect(cleanCategories(["nombre", "serie", "lugar", "color", "marca"], 5)).toBeNull(); // no hay sorteo
+    expect(cleanCategories([...all], 7)).toBeNull();
+    expect(cleanCategories([...all, "fruta", "comida", "objeto", "famoso"], 3)).toHaveLength(10); // sin tope de 8
+    const seq = [0.99, 0, 0.5];
+    let i = 0;
+    const picked = pickCategories([...all], 3, () => seq[i++]);
+    expect(picked).toEqual(["nombre", "color", "animal"]);
+    for (let k = 0; k < 20; k++) expect(new Set(pickCategories([...all], 4)).size).toBe(4);
+  });
+
+  it("cada ronda juega las sorteadas y las guarda en el resultado", async () => {
+    setStore(createMemoryStore());
+    vi.useFakeTimers();
+    vi.setSystemTime(4_000_000);
+    const [A, B] = ["aaaaaaaa-1111", "bbbbbbbb-2222"];
+    await act({ type: "join", playerId: A, name: "Ana" });
+    await act({ type: "join", playerId: B, name: "Beto" });
+    await expect(
+      act({ type: "setCategories", playerId: A, categories: ["nombre", "lugar", "color"], random: 3 }),
+    ).rejects.toThrow("al menos 4");
+    await act({
+      type: "setCategories",
+      playerId: A,
+      categories: ["nombre", "lugar", "color", "animal", "comida", "excusa"],
+      random: 3,
+    });
+
+    const played: string[][] = [];
+    for (let r = 0; r < 2; r++) {
+      await act({ type: "spin", playerId: r === 0 ? A : B });
+      vi.advanceTimersByTime(400 + SPIN_MS);
+      const st = await getState(A, null);
+      if ("same" in st) throw new Error();
+      const cats = st.game.roundCats!;
+      expect(cats).toHaveLength(3);
+      expect(cats.every((c) => ["nombre", "lugar", "color", "animal", "comida", "excusa"].includes(c))).toBe(true);
+      const L = st.game.letter!;
+      const ans = Object.fromEntries(cats.map((c, i) => [c, `${L}ola ${i}`]));
+      await expect(act({ type: "basta", playerId: A, answers: { ...ans, [cats[0]]: "" } })).rejects.toThrow(
+        "Completá las 3",
+      );
+      await act({ type: "basta", playerId: A, answers: ans });
+      vi.advanceTimersByTime(STOP_MS);
+      await act({ type: "closeRound", playerId: A });
+      const end = await getState(A, null);
+      if ("same" in end) throw new Error();
+      expect(end.results[r].categories).toEqual(cats);
+      expect(Object.keys(end.results[r].points[A]).sort()).toEqual([...cats].sort());
+      played.push(cats);
+    }
+    expect(played).toHaveLength(2);
+
+    await act({ type: "reset", playerId: A });
+    const fresh = await getState(A, null);
+    if ("same" in fresh) throw new Error();
+    expect(fresh.game.randomCats).toBe(3);
+    expect(fresh.game.roundCats).toBeNull();
     vi.useRealTimers();
   });
 });

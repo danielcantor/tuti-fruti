@@ -37,12 +37,35 @@ export function gameCategories(g: { categories?: CategoryKey[] | null }): Catego
   return CATEGORIES.map((c) => c.key).filter((k) => set.has(k));
 }
 
-/** Valida una elección de categorías: sin repetir, de MIN a MAX. Devuelve null si no sirve. */
-export function cleanCategories(input: unknown): CategoryKey[] | null {
-  if (!Array.isArray(input) || !input.every(isCategory)) return null;
+/** Modo al azar: cuántas categorías se sortean por ronda. */
+export const RANDOM_COUNT_OPTIONS = [3, 4, 5, 6];
+
+/**
+ * Valida una elección de categorías, sin repetir. Fijas (`random` null): de
+ * MIN a MAX. Al azar: más categorías que las que salen por ronda, para que
+ * haya sorteo. Devuelve null si no sirve.
+ */
+export function cleanCategories(input: unknown, random: number | null = null): CategoryKey[] | null {
+  if (!Array.isArray(input) || input.length === 0 || !input.every(isCategory)) return null;
   const cats = gameCategories({ categories: [...new Set(input)] });
-  if (input.length === 0 || cats.length < MIN_CATEGORIES || cats.length > MAX_CATEGORIES) return null;
-  return cats;
+  if (random === null) {
+    return cats.length >= MIN_CATEGORIES && cats.length <= MAX_CATEGORIES ? cats : null;
+  }
+  return RANDOM_COUNT_OPTIONS.includes(random) && cats.length > random ? cats : null;
+}
+
+/** Sortea `n` categorías del pozo, en el orden de la lista. */
+export function pickCategories(pool: CategoryKey[], n: number, rand: () => number = Math.random): CategoryKey[] {
+  const left = [...pool];
+  const out: CategoryKey[] = [];
+  while (out.length < n && left.length) out.push(left.splice(Math.floor(rand() * left.length), 1)[0]);
+  return gameCategories({ categories: out });
+}
+
+/** Las categorías que se juegan en la ronda actual (las sorteadas, en modo al azar). */
+export function roundCategories(g: Pick<Game, "categories" | "randomCats" | "roundCats">): CategoryKey[] {
+  if (g.randomCats && g.roundCats?.length) return gameCategories({ categories: g.roundCats });
+  return gameCategories(g);
 }
 
 export const SPIN_MS = 4500;
@@ -88,8 +111,12 @@ export type Game = {
   results: RoundResult[];
   /** null = sin límite (también en partidas guardadas antes de existir el campo). */
   maxRounds?: number | null;
-  /** Categorías que se juegan (las elige el dueño antes de la primera ronda). */
+  /** Categorías que se juegan, o el pozo del que se sortean (las elige el dueño antes de la primera ronda). */
   categories?: CategoryKey[];
+  /** Al azar: cuántas se sortean por ronda. null = siempre las mismas. */
+  randomCats?: number | null;
+  /** Las sorteadas para la ronda actual (solo en modo al azar). */
+  roundCats?: CategoryKey[] | null;
   /** Hora en que se cerró la última ronda. */
   closedAt?: number | null;
   /** Quién tenía el turno en el último giro (para pasarle el turno al siguiente). */
@@ -107,6 +134,8 @@ export const initialGame = (): Game => ({
   results: [],
   maxRounds: null,
   categories: [...DEFAULT_CATEGORIES],
+  randomCats: null,
+  roundCats: null,
   closedAt: null,
   lastSpinner: null,
 });

@@ -12,13 +12,16 @@ import {
   type Answers,
   CATEGORIES,
   type CategoryKey,
+  DEFAULT_CATEGORIES,
   MAX_CATEGORIES,
   MIN_CATEGORIES,
+  RANDOM_COUNT_OPTIONS,
   ROUND_OPTIONS,
   STOP_MS,
   effectiveBastaAt,
   emptyAnswers,
   gameCategories,
+  roundCategories,
   roundDeadline,
 } from "@/lib/game";
 import { useGame } from "@/lib/useGame";
@@ -103,7 +106,7 @@ function Table({ g }: { g: G }) {
   if (state && game.round !== draftRound) {
     // Ronda nueva: empezar en blanco (o con lo que ya había guardado si recargó la página).
     setDraftRound(game.round);
-    setDraft(state.answers[me] ?? emptyAnswers(gameCategories(game)));
+    setDraft(state.answers[me] ?? emptyAnswers(roundCategories(game)));
   }
 
   const flush = useCallback(() => {
@@ -139,11 +142,29 @@ function Table({ g }: { g: G }) {
   const ownerName = ownerId ? nameOf(ownerId) : "el dueño";
   const maxRounds = game.maxRounds ?? null;
   const started = results.length > 0;
-  const cats = gameCategories(game);
+  // Las de la ronda (sorteadas, en modo al azar) y el pozo que eligió el dueño.
+  const cats = roundCategories(game);
+  const pool = gameCategories(game);
+  const random = game.randomCats ?? null;
+  const minPool = random === null ? MIN_CATEGORIES : random + 1;
+  const maxPool = random === null ? MAX_CATEGORIES : CATEGORIES.length;
+  const allKeys = CATEGORIES.map((c) => c.key);
+  const setCats = (categories: CategoryKey[], r: number | null) =>
+    send({ type: "setCategories", categories, random: r });
   const toggleCat = (k: CategoryKey) => {
-    const next = cats.includes(k) ? cats.filter((c) => c !== k) : [...cats, k];
-    if (next.length >= MIN_CATEGORIES && next.length <= MAX_CATEGORIES) send({ type: "setCategories", categories: next });
+    const next = pool.includes(k) ? pool.filter((c) => c !== k) : [...pool, k];
+    if (next.length >= minPool && next.length <= maxPool) setCats(next, random);
   };
+  const setRandom = (r: number | null) => {
+    if (r === random) return;
+    if (r === null) setCats(pool.length <= MAX_CATEGORIES ? pool : DEFAULT_CATEGORIES, null);
+    // Al pasar a azar arranca con todas; si ya era azar, conserva el pozo si alcanza.
+    else setCats(random !== null && pool.length > r ? pool : allKeys, r);
+  };
+  const pill = (active: boolean) =>
+    `rounded-xl border px-4 py-2 text-sm font-semibold transition disabled:cursor-default ${
+      active ? "border-ink bg-ink text-paper" : "border-line bg-card enabled:hover:border-ink"
+    } ${!isOwner && !active ? "opacity-50" : ""}`;
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-6 px-4 pt-6 pb-24 sm:px-6 lg:pt-10">
@@ -235,12 +256,48 @@ function Table({ g }: { g: G }) {
                         })}
                       </div>
                       <span className="mt-3 text-sm font-medium">
-                        Categorías ({cats.length})
-                        <span className="text-muted">
-                          {isOwner
-                            ? ` · elegí entre ${MIN_CATEGORIES} y ${MAX_CATEGORIES}`
-                            : ` · las elige ${ownerName}`}
-                        </span>
+                        Categorías{!isOwner && <span className="text-muted"> · las elige {ownerName}</span>}
+                      </span>
+                      <div role="radiogroup" aria-label="Modo de categorías" className="flex flex-wrap justify-center gap-2">
+                        {([null, 5] as const).map((r) => {
+                          const active = r === null ? random === null : random !== null;
+                          return (
+                            <button
+                              key={String(r)}
+                              role="radio"
+                              aria-checked={active}
+                              disabled={!isOwner}
+                              onClick={() => !active && setRandom(r)}
+                              className={pill(active)}
+                            >
+                              {r === null ? "Fijas" : "Al azar cada ronda"}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {random !== null && (
+                        <div className="flex flex-wrap items-center justify-center gap-2">
+                          <span className="text-sm text-muted">¿Cuántas por ronda?</span>
+                          <div role="radiogroup" aria-label="Categorías por ronda" className="flex gap-2">
+                            {RANDOM_COUNT_OPTIONS.map((n) => (
+                              <button
+                                key={n}
+                                role="radio"
+                                aria-checked={n === random}
+                                disabled={!isOwner}
+                                onClick={() => setRandom(n)}
+                                className={pill(n === random)}
+                              >
+                                {n}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <span className="text-sm text-muted">
+                        {random === null
+                          ? `Se juegan siempre estas (${pool.length})${isOwner ? ` · elegí entre ${MIN_CATEGORIES} y ${MAX_CATEGORIES}` : ""}`
+                          : `Cada ronda se sortean ${random} de estas ${pool.length}`}
                       </span>
                       <div
                         role="group"
@@ -248,8 +305,8 @@ function Table({ g }: { g: G }) {
                         className="flex max-w-xl flex-wrap justify-center gap-2"
                       >
                         {CATEGORIES.map(({ key, label }) => {
-                          const on = cats.includes(key);
-                          const blocked = on ? cats.length <= MIN_CATEGORIES : cats.length >= MAX_CATEGORIES;
+                          const on = pool.includes(key);
+                          const blocked = on ? pool.length <= minPool : pool.length >= maxPool;
                           return (
                             <button
                               key={key}
@@ -259,8 +316,8 @@ function Table({ g }: { g: G }) {
                               title={
                                 isOwner && blocked
                                   ? on
-                                    ? `Tiene que haber al menos ${MIN_CATEGORIES}`
-                                    : `Máximo ${MAX_CATEGORIES} categorías`
+                                    ? `Tiene que haber al menos ${minPool}`
+                                    : `Máximo ${maxPool} categorías`
                                   : undefined
                               }
                               onClick={() => toggleCat(key)}
@@ -279,6 +336,7 @@ function Table({ g }: { g: G }) {
                       {maxRounds !== null
                         ? `Partida a ${maxRounds} rondas · faltan ${maxRounds - results.length}`
                         : "Partida sin límite · si nadie gira en 15 min, la partida termina"}
+                      {random !== null && ` · ${random} categorías al azar por ronda`}
                     </p>
                   )}
                   <p className="max-w-md text-sm text-muted">

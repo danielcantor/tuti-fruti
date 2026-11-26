@@ -37,7 +37,7 @@ for (const l of ["Animal", "Excusa para llegar tarde", "Serie / Película", "Col
 }
 await sleep(1200);
 check(await pressed(b, "Excusa para llegar tarde") && !(await pressed(b, "Marca")), "Beto ve la elección de Ana");
-check((await a.textContent("main")).includes("Categorías (4)"), "muestra cuántas hay elegidas");
+check((await a.textContent("main")).includes("Se juegan siempre estas (4)"), "muestra cuántas hay elegidas");
 await a.screenshot({ path: `${OUT}/cat-1-sala-desktop.png`, fullPage: true });
 await b.screenshot({ path: `${OUT}/cat-1-sala-mobile.png`, fullPage: true });
 

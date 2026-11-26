@@ -3,7 +3,8 @@
 Tuti Fruti multijugador para jugar con la oficina: ruleta de letras compartida, categorías a
 elección del dueño de la sala (de 3 a 8, entre Nombre, Serie/Película, Lugar, Color, Marca, Animal,
 Fruta o verdura, Comida, Cosa u objeto, Persona famosa, Cantante o banda, Ropa o accesorio y
-Excusa para llegar tarde; por defecto las cinco primeras), botón **¡Basta!** con cuenta regresiva de 5 s,
+Excusa para llegar tarde; por defecto las cinco primeras) o al azar: en cada ronda se sortean
+de 3 a 6 de las que marque el dueño (por defecto, 5 de las 13), botón **¡Basta!** con cuenta regresiva de 5 s,
 revisión con votación para anular respuestas y tabla de puntos acumulada.
 
 Votación: en la revisión, cualquiera toca una respuesta que le parece que no vale y la lleva a
@@ -38,5 +39,6 @@ npm test           # lógica y partida completa
 ```
 Pruebas con dos navegadores (Playwright): `node e2e/two-players.mjs http://localhost:3000` 
 `node e2e/three-rounds.mjs http://localhost:3000` y `node e2e/votes.mjs http://localhost:3000`
-(tres jugadores votando) y `node e2e/categories.mjs http://localhost:3000` (elegir categorías);
+(tres jugadores votando) `node e2e/categories.mjs http://localhost:3000` (elegir categorías) y
+`node e2e/random-categories.mjs http://localhost:3000` (categorías al azar);
 correr cada una con el servidor recién iniciado.

@@ -20,6 +20,8 @@ import {
   cleanCategories,
   gameCategories,
   initialGame,
+  pickCategories,
+  roundCategories,
   invalidFromVotes,
   invalidKey,
   isComplete,
@@ -67,6 +69,7 @@ async function readGame(): Promise<{ raw: string | null; game: Game }> {
   const game = raw ? (JSON.parse(raw) as Game) : initialGame();
   game.maxRounds ??= null;
   game.categories = gameCategories(game);
+  game.randomCats ??= null;
   game.closedAt ??= null;
   return { raw, game };
 }
@@ -231,7 +234,7 @@ export async function getState(
     if (phase === "review") {
       answers = all;
       ({ tallies: votes, invalid } = await loadVotes(game.round, room, playerId, now));
-      preview = scoreRound(game.letter ?? "", all, new Set(invalid), gameCategories(game));
+      preview = scoreRound(game.letter ?? "", all, new Set(invalid), roundCategories(game));
     } else if (playerId && all[playerId] && phase !== "lobby") {
       answers = { [playerId]: all[playerId] };
     }
@@ -260,7 +263,8 @@ export type Action =
   | { type: "leave"; playerId: string }
   | { type: "spin"; playerId: string }
   | { type: "setMaxRounds"; playerId: string; value: number | null }
-  | { type: "setCategories"; playerId: string; categories: CategoryKey[] }
+  /** `random`: cuántas se sortean por ronda, o null para jugar siempre las mismas. */
+  | { type: "setCategories"; playerId: string; categories: CategoryKey[]; random?: number | null }
   | { type: "answer"; playerId: string; answers: Partial<Answers> }
   | { type: "basta"; playerId: string; answers: Partial<Answers> }
   /** "no": no vale (abre la votación si nadie la había cuestionado), "si": vale, null: retirar el voto. */
@@ -334,6 +338,7 @@ export async function act(body: unknown): Promise<void> {
           bastaBy: null,
           bastaAt: null,
           lastSpinner: spinner,
+          roundCats: g.randomCats ? pickCategories(gameCategories(g), g.randomCats) : null,
         };
       });
       return;
@@ -356,15 +361,21 @@ export async function act(body: unknown): Promise<void> {
     case "setCategories": {
       await requirePlayer();
       await requireOwner("elegir las categorías");
-      const cats = cleanCategories(a.categories);
+      const random = a.random == null ? null : Number(a.random);
+      const cats = cleanCategories(a.categories, random);
       if (!cats) {
-        throw new GameError(`Elegí entre ${MIN_CATEGORIES} y ${MAX_CATEGORIES} categorías`, 400);
+        throw new GameError(
+          random === null
+            ? `Elegí entre ${MIN_CATEGORIES} y ${MAX_CATEGORIES} categorías`
+            : `Para sortear ${random} por ronda, elegí al menos ${random + 1} categorías`,
+          400,
+        );
       }
       await mutateGame((g, now) => {
         if (derivePhase(g, now) !== "lobby" || g.results.length > 0) {
           throw new GameError("Las categorías se eligen antes de la primera ronda");
         }
-        return { ...g, categories: cats };
+        return { ...g, categories: cats, randomCats: random };
       });
       return;
     }
@@ -373,7 +384,7 @@ export async function act(body: unknown): Promise<void> {
     case "basta": {
       await requirePlayer();
       const { game } = await readGame();
-      const cats = gameCategories(game);
+      const cats = roundCategories(game);
       const answers = sanitizeAnswers(a.answers, cats);
       const now = Date.now();
       const phase = derivePhase(game, now);
@@ -403,7 +414,7 @@ export async function act(body: unknown): Promise<void> {
       await requirePlayer();
       const { game } = await readGame();
       if (derivePhase(game, Date.now()) !== "review") throw new GameError("Solo se vota en la revisión");
-      if (!validId(a.target) || !gameCategories(game).includes(a.cat)) {
+      if (!validId(a.target) || !roundCategories(game).includes(a.cat)) {
         throw new GameError("Pedido inválido", 400);
       }
       if (a.value !== "si" && a.value !== "no" && a.value !== null) throw new GameError("Voto inválido", 400);
@@ -456,7 +467,7 @@ export async function act(body: unknown): Promise<void> {
         Object.entries(tallies).map(([k, { no, yes }]) => [k, { no, yes }]),
       );
       const roundAnswers = parseHash<Answers>(answersH);
-      const cats = gameCategories(game);
+      const cats = roundCategories(game);
       const points = scoreRound(game.letter ?? "", roundAnswers, new Set(roundInvalid), cats);
       await mutateGame((g, now) => {
         if (derivePhase(g, now) !== "review" || g.round !== game.round) return g;
@@ -493,7 +504,12 @@ export async function act(body: unknown): Promise<void> {
         await Promise.all([`${P}answers:*`, `${P}votes:*`, `${P}opened:*`, `${P}invalid:*`].map((k) => store.keys(k)))
       ).flat();
       await store.del(...keys);
-      await mutateGame((g) => ({ ...initialGame(), maxRounds: g.maxRounds ?? null, categories: gameCategories(g) }));
+      await mutateGame((g) => ({
+        ...initialGame(),
+        maxRounds: g.maxRounds ?? null,
+        categories: gameCategories(g),
+        randomCats: g.randomCats ?? null,
+      }));
       return;
     }
 
