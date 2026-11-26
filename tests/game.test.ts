@@ -4,12 +4,18 @@ import {
   ROUND_MS,
   SPIN_MS,
   STOP_MS,
+  VOTE_MS,
+  MARK_MS,
   answerProblem,
+  cleanCategories,
   derivePhase,
+  pickCategories,
   roomRoles,
   initialGame,
+  invalidFromVotes,
   invalidKey,
   normalize,
+  parseVotes,
   pickLetter,
   scoreRound,
   totals,
@@ -124,7 +130,7 @@ describe("partida completa", () => {
     expect(rev.game.phase).toBe("review");
     expect(rev.preview![A]).toMatchObject({ nombre: 5, color: 10 });
 
-    await act({ type: "toggleInvalid", playerId: B, target: A, cat: "color" });
+    await act({ type: "vote", playerId: B, target: A, cat: "color", value: "no" });
     await expect(act({ type: "closeRound", playerId: B })).rejects.toThrow("dueño");
     await act({ type: "closeRound", playerId: A });
     const end = await getState(A, null);
@@ -135,6 +141,253 @@ describe("partida completa", () => {
 
     const same = await getState(A, end.ver);
     expect("same" in same).toBe(true);
+    vi.useRealTimers();
+  });
+});
+
+describe("votación de respuestas", () => {
+  it("invalidFromVotes: mayoría anula, empate queda, el autor y los que se fueron no cuentan", () => {
+    expect(invalidFromVotes({ "a|color": { b: false } })).toEqual(["a|color"]);
+    expect(invalidFromVotes({ "a|color": { b: false, c: true } })).toEqual([]);
+    expect(invalidFromVotes({ "a|color": { b: false, c: false, d: true } })).toEqual(["a|color"]);
+    expect(invalidFromVotes({ "a|color": { a: true, b: false } })).toEqual(["a|color"]);
+    expect(invalidFromVotes({ "a|color": { b: false, c: true, d: true } }, new Set(["b", "c"]))).toEqual([]);
+    expect(invalidFromVotes({ "a|color": { b: false } }, new Set(["a", "c"]))).toEqual([]);
+  });
+
+  it("parseVotes arma votante por respuesta e ignora basura", () => {
+    expect(parseVotes({ "a|color|b": "no", "a|color|c": "si", "x|y": "no", "a|lugar|b": "quizás" })).toEqual({
+      "a|color": { b: false, c: true },
+    });
+  });
+
+  it("tres jugadores: voto anónimo, 20 s para votar y no se cierra la ronda con votaciones abiertas", async () => {
+    setStore(createMemoryStore());
+    vi.useFakeTimers();
+    vi.setSystemTime(2_000_000);
+    const [A, B, C] = ["aaaaaaaa-1111", "bbbbbbbb-2222", "cccccccc-3333"];
+    await act({ type: "join", playerId: A, name: "Ana" });
+    await act({ type: "join", playerId: B, name: "Beto" });
+    await act({ type: "join", playerId: C, name: "Caro" });
+    await act({ type: "spin", playerId: A });
+    vi.advanceTimersByTime(400 + SPIN_MS);
+    const st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    const L = st.game.letter!;
+    const full = (x: string) => ({
+      nombre: L + "ana" + x,
+      serie: L + "ola" + x,
+      lugar: L + "ola" + x,
+      color: L + "ojo" + x,
+      marca: L + "ola" + x,
+    });
+    await act({ type: "basta", playerId: A, answers: full("a") });
+    await act({ type: "answer", playerId: B, answers: full("b") });
+    await act({ type: "answer", playerId: C, answers: full("c") });
+
+    const vote = (playerId: string, target: string, cat: "color" | "lugar" | "serie", value: "si" | "no" | null) =>
+      act({ type: "vote", playerId, target, cat, value });
+    await expect(vote(B, A, "color", "no")).rejects.toThrow("revisión");
+    vi.advanceTimersByTime(STOP_MS);
+
+    const view = async (who: string) => {
+      const s = await getState(who, null);
+      if ("same" in s) throw new Error();
+      return s;
+    };
+    await expect(vote(A, A, "color", "no")).rejects.toThrow("propia");
+    await expect(vote(B, A, "color", "si")).rejects.toThrow("Nadie cuestionó");
+
+    // Beto cuestiona: Caro ve los totales, no quién votó.
+    await vote(B, A, "color", "no");
+    let s = await view(C);
+    expect(s.votes[`${A}|color`]).toMatchObject({ no: 1, yes: 0, mine: null, pending: 1, done: false });
+    expect(JSON.stringify(s.votes)).not.toContain(B);
+    expect((await view(B)).votes[`${A}|color`].mine).toBe("no");
+    expect(s.invalid).toEqual([`${A}|color`]);
+
+    // Con la votación abierta no se pasa a la próxima ronda.
+    await expect(act({ type: "closeRound", playerId: A })).rejects.toThrow("votación en curso");
+
+    // Caro vota "vale": ya votaron todos, se cierra con empate y la respuesta queda.
+    await vote(C, A, "color", "si");
+    s = await view(A);
+    expect(s.votes[`${A}|color`]).toMatchObject({ no: 1, yes: 1, pending: 0, done: true });
+    expect(s.invalid).toEqual([]);
+    await expect(vote(B, A, "color", null)).rejects.toThrow("cerró");
+
+    // Retirar el único "no" hace caer la votación.
+    await vote(B, C, "serie", "no");
+    await vote(B, C, "serie", null);
+    expect((await view(A)).votes[`${C}|serie`]).toBeUndefined();
+
+    // Caro cuestiona el lugar de Beto y Ana no vota: se cierra sola a los 20 s.
+    await vote(C, B, "lugar", "no");
+    vi.advanceTimersByTime(VOTE_MS - 1000);
+    await expect(act({ type: "closeRound", playerId: A })).rejects.toThrow("(1 s)");
+    vi.advanceTimersByTime(1000);
+    await expect(vote(A, B, "lugar", "si")).rejects.toThrow("cerró");
+    await act({ type: "closeRound", playerId: A });
+
+    s = await view(A);
+    expect(s.results[0].invalid).toEqual([`${B}|lugar`]);
+    expect(s.results[0].votes).toEqual({ [`${A}|color`]: { no: 1, yes: 1 }, [`${B}|lugar`]: { no: 1, yes: 0 } });
+    expect(JSON.stringify(s.results)).not.toMatch(/"(bbbbbbbb-2222|cccccccc-3333)":(true|false)/);
+    expect(s.votes).toEqual({});
+    vi.useRealTimers();
+  });
+});
+
+describe("tiempo para marcar palabras", () => {
+  it("solo se abren votaciones en los primeros 20 s; las abiertas terminan igual", async () => {
+    setStore(createMemoryStore());
+    vi.useFakeTimers();
+    vi.setSystemTime(5_000_000);
+    const [A, B, C] = ["aaaaaaaa-1111", "bbbbbbbb-2222", "cccccccc-3333"];
+    for (const [id, n] of [[A, "Ana"], [B, "Beto"], [C, "Caro"]]) await act({ type: "join", playerId: id, name: n });
+    await act({ type: "spin", playerId: A });
+    vi.advanceTimersByTime(400 + SPIN_MS);
+    const st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    const L = st.game.letter!;
+    const full = (x: string) => ({ nombre: L + "ana" + x, serie: L + "ola" + x, lugar: L + "ola" + x, color: L + "ojo" + x, marca: L + "ola" + x });
+    await act({ type: "basta", playerId: A, answers: full("a") });
+    await act({ type: "answer", playerId: B, answers: full("b") });
+    vi.advanceTimersByTime(STOP_MS); // empieza la revisión
+
+    vi.advanceTimersByTime(MARK_MS - 1000);
+    await act({ type: "vote", playerId: B, target: A, cat: "color", value: "no" }); // al segundo 19: entra
+    vi.advanceTimersByTime(1000);
+    await expect(act({ type: "vote", playerId: B, target: A, cat: "lugar", value: "no" })).rejects.toThrow(
+      "20 segundos para marcar",
+    );
+    // La que ya estaba abierta se sigue votando y bloquea el pase de ronda.
+    await expect(act({ type: "closeRound", playerId: A })).rejects.toThrow("votación en curso");
+    await act({ type: "vote", playerId: C, target: A, cat: "color", value: "no" });
+    await act({ type: "closeRound", playerId: A });
+    const end = await getState(A, null);
+    if ("same" in end) throw new Error();
+    expect(end.results[0].invalid).toEqual([`${A}|color`]);
+    vi.useRealTimers();
+  });
+});
+
+describe("categorías elegidas por el dueño", () => {
+  it("cleanCategories: sin repetir, en orden, entre 3 y 8", () => {
+    expect(cleanCategories(["animal", "nombre", "excusa", "animal"])).toEqual(["nombre", "animal", "excusa"]);
+    expect(cleanCategories(["nombre", "animal"])).toBeNull();
+    expect(cleanCategories(["nombre", "animal", "pizza"])).toBeNull();
+    expect(cleanCategories("nombre")).toBeNull();
+    expect(
+      cleanCategories(["nombre", "serie", "lugar", "color", "marca", "animal", "fruta", "comida", "objeto"]),
+    ).toBeNull();
+  });
+
+  it("solo el dueño, antes de la primera ronda; se juega y puntúa con esas", async () => {
+    setStore(createMemoryStore());
+    vi.useFakeTimers();
+    vi.setSystemTime(3_000_000);
+    const [A, B] = ["aaaaaaaa-1111", "bbbbbbbb-2222"];
+    await act({ type: "join", playerId: A, name: "Ana" });
+    await act({ type: "join", playerId: B, name: "Beto" });
+    const cats = ["animal", "ropa", "excusa"] as const;
+    await expect(act({ type: "setCategories", playerId: B, categories: [...cats] })).rejects.toThrow("dueño");
+    await expect(act({ type: "setCategories", playerId: A, categories: ["animal"] })).rejects.toThrow("entre 3 y 8");
+    await act({ type: "setCategories", playerId: A, categories: [...cats] });
+
+    await act({ type: "spin", playerId: A });
+    vi.advanceTimersByTime(400 + SPIN_MS);
+    const st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    expect(st.game.categories).toEqual(["animal", "ropa", "excusa"]);
+    await expect(act({ type: "setCategories", playerId: A, categories: ["nombre", "lugar", "color"] })).rejects.toThrow(
+      "antes de la primera ronda",
+    );
+    const L = st.game.letter!;
+    // Las categorías que no se juegan se ignoran.
+    await act({ type: "basta", playerId: A, answers: { animal: L + "ana", ropa: L + "opa", excusa: L + "e me hizo tarde", nombre: L + "ola" } });
+    await act({ type: "answer", playerId: B, answers: { animal: L + "ana", ropa: L + "emera" } });
+    vi.advanceTimersByTime(STOP_MS);
+    await act({ type: "closeRound", playerId: A });
+
+    const end = await getState(A, null);
+    if ("same" in end) throw new Error();
+    expect(end.results[0].categories).toEqual(["animal", "ropa", "excusa"]);
+    expect(end.results[0].points[A]).toEqual({ animal: 5, ropa: 10, excusa: 10 });
+    expect(end.results[0].answers![A].nombre).toBeUndefined();
+    expect(end.totals).toEqual({ [A]: 25, [B]: 15 });
+    await expect(act({ type: "setCategories", playerId: A, categories: ["nombre", "lugar", "color"] })).rejects.toThrow();
+
+    // Nueva partida: conserva las categorías elegidas.
+    await act({ type: "reset", playerId: A });
+    const fresh = await getState(A, null);
+    if ("same" in fresh) throw new Error();
+    expect(fresh.game.categories).toEqual(["animal", "ropa", "excusa"]);
+    vi.useRealTimers();
+  });
+});
+
+describe("categorías al azar en cada ronda", () => {
+  it("valida el pozo y sortea sin repetir, en orden", () => {
+    const all = ["nombre", "serie", "lugar", "color", "marca", "animal"] as const;
+    expect(cleanCategories([...all], 5)).toEqual([...all]);
+    expect(cleanCategories(["nombre", "serie", "lugar", "color", "marca"], 5)).toBeNull(); // no hay sorteo
+    expect(cleanCategories([...all], 7)).toBeNull();
+    expect(cleanCategories([...all, "fruta", "comida", "objeto", "famoso"], 3)).toHaveLength(10); // sin tope de 8
+    const seq = [0.99, 0, 0.5];
+    let i = 0;
+    const picked = pickCategories([...all], 3, () => seq[i++]);
+    expect(picked).toEqual(["nombre", "color", "animal"]);
+    for (let k = 0; k < 20; k++) expect(new Set(pickCategories([...all], 4)).size).toBe(4);
+  });
+
+  it("cada ronda juega las sorteadas y las guarda en el resultado", async () => {
+    setStore(createMemoryStore());
+    vi.useFakeTimers();
+    vi.setSystemTime(4_000_000);
+    const [A, B] = ["aaaaaaaa-1111", "bbbbbbbb-2222"];
+    await act({ type: "join", playerId: A, name: "Ana" });
+    await act({ type: "join", playerId: B, name: "Beto" });
+    await expect(
+      act({ type: "setCategories", playerId: A, categories: ["nombre", "lugar", "color"], random: 3 }),
+    ).rejects.toThrow("al menos 4");
+    await act({
+      type: "setCategories",
+      playerId: A,
+      categories: ["nombre", "lugar", "color", "animal", "comida", "excusa"],
+      random: 3,
+    });
+
+    const played: string[][] = [];
+    for (let r = 0; r < 2; r++) {
+      await act({ type: "spin", playerId: r === 0 ? A : B });
+      vi.advanceTimersByTime(400 + SPIN_MS);
+      const st = await getState(A, null);
+      if ("same" in st) throw new Error();
+      const cats = st.game.roundCats!;
+      expect(cats).toHaveLength(3);
+      expect(cats.every((c) => ["nombre", "lugar", "color", "animal", "comida", "excusa"].includes(c))).toBe(true);
+      const L = st.game.letter!;
+      const ans = Object.fromEntries(cats.map((c, i) => [c, `${L}ola ${i}`]));
+      await expect(act({ type: "basta", playerId: A, answers: { ...ans, [cats[0]]: "" } })).rejects.toThrow(
+        "Completá las 3",
+      );
+      await act({ type: "basta", playerId: A, answers: ans });
+      vi.advanceTimersByTime(STOP_MS);
+      await act({ type: "closeRound", playerId: A });
+      const end = await getState(A, null);
+      if ("same" in end) throw new Error();
+      expect(end.results[r].categories).toEqual(cats);
+      expect(Object.keys(end.results[r].points[A]).sort()).toEqual([...cats].sort());
+      played.push(cats);
+    }
+    expect(played).toHaveLength(2);
+
+    await act({ type: "reset", playerId: A });
+    const fresh = await getState(A, null);
+    if ("same" in fresh) throw new Error();
+    expect(fresh.game.randomCats).toBe(3);
+    expect(fresh.game.roundCats).toBeNull();
     vi.useRealTimers();
   });
 });
@@ -386,6 +639,45 @@ describe("answerProblem", () => {
       expect(answerProblem(a, l, c), a).toBeNull();
     }
     expect(answerProblem("hh", "H", "marca")).toBeTruthy();
+  });
+
+  it("categorías nuevas: siglas, palabras cortas y apellidos extranjeros", () => {
+    for (const [a, l, c] of [
+      ["Oso", "O", "animal"],
+      ["Yacaré", "Y", "animal"],
+      ["Uva", "U", "fruta"],
+      ["Té", "T", "comida"],
+      ["Milanesa a la napolitana", "M", "comida"],
+      ["TV", "T", "objeto"],
+      ["Nietzsche", "N", "famoso"],
+      ["Schwarzenegger", "S", "famoso"],
+      ["JFK", "J", "famoso"],
+      ["Mr. Bean", "M", "famoso"],
+      ["U2", "U", "cantante"],
+      ["BTS", "B", "cantante"],
+      ["AC/DC", "A", "cantante"],
+      ["MGMT", "M", "cantante"],
+      ["Rammstein", "R", "cantante"],
+      ["NYC", "N", "lugar"],
+      ["Jean", "J", "ropa"],
+      ["Había un piquete en la 9 de Julio", "H", "excusa"],
+      ["Tráfico", "T", "excusa"],
+    ] as const) {
+      expect(answerProblem(a, l, c), `${c}: ${a}`).toBeNull();
+    }
+    // La basura sigue sin pasar.
+    for (const [a, l, c] of [
+      ["Hjkl", "H", "famoso"], // sin vocales y en minúscula: no es sigla
+      ["Hhh", "H", "cantante"],
+      ["Xxxxx", "X", "famoso"],
+      ["B", "B", "cantante"],
+      ["TV", "T", "nombre"], // en nombre no valen siglas ni palabras de dos letras
+      ["Pqrst", "P", "animal"],
+      ["Sdfghjkl", "S", "excusa"],
+      ["Zzz me dormí", "Z", "excusa"],
+    ] as const) {
+      expect(answerProblem(a, l, c), `${c}: ${a}`).toBeTruthy();
+    }
   });
 
   it("las inválidas valen 0 en el puntaje", () => {

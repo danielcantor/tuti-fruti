@@ -11,10 +11,18 @@ import Wheel from "@/components/Wheel";
 import {
   type Answers,
   CATEGORIES,
+  type CategoryKey,
+  DEFAULT_CATEGORIES,
+  MAX_CATEGORIES,
+  MIN_CATEGORIES,
+  RANDOM_COUNT_OPTIONS,
   ROUND_OPTIONS,
   STOP_MS,
   effectiveBastaAt,
   emptyAnswers,
+  markDeadline,
+  gameCategories,
+  roundCategories,
   roundDeadline,
 } from "@/lib/game";
 import { useGame } from "@/lib/useGame";
@@ -44,8 +52,8 @@ function Join({ onJoin }: { onJoin: (name: string) => Promise<boolean> }) {
         <div className="flex flex-col gap-3">
           <Logo className="text-5xl" />
           <p className="text-muted">
-            Una letra, cinco categorías: {CATEGORIES.map((c) => c.label.toLowerCase()).join(", ")}. El primero que
-            completa todo canta <strong className="text-ink">¡Basta!</strong>
+            Una letra y varias categorías: nombre, lugar, color, animal y más (las elige el dueño de la sala). El
+            primero que completa todo canta <strong className="text-ink">¡Basta!</strong>
           </p>
         </div>
         <label className="flex flex-col gap-2">
@@ -99,7 +107,7 @@ function Table({ g }: { g: G }) {
   if (state && game.round !== draftRound) {
     // Ronda nueva: empezar en blanco (o con lo que ya había guardado si recargó la página).
     setDraftRound(game.round);
-    setDraft(state.answers[me] ?? emptyAnswers());
+    setDraft(state.answers[me] ?? emptyAnswers(roundCategories(game)));
   }
 
   const flush = useCallback(() => {
@@ -135,6 +143,29 @@ function Table({ g }: { g: G }) {
   const ownerName = ownerId ? nameOf(ownerId) : "el dueño";
   const maxRounds = game.maxRounds ?? null;
   const started = results.length > 0;
+  // Las de la ronda (sorteadas, en modo al azar) y el pozo que eligió el dueño.
+  const cats = roundCategories(game);
+  const pool = gameCategories(game);
+  const random = game.randomCats ?? null;
+  const minPool = random === null ? MIN_CATEGORIES : random + 1;
+  const maxPool = random === null ? MAX_CATEGORIES : CATEGORIES.length;
+  const allKeys = CATEGORIES.map((c) => c.key);
+  const setCats = (categories: CategoryKey[], r: number | null) =>
+    send({ type: "setCategories", categories, random: r });
+  const toggleCat = (k: CategoryKey) => {
+    const next = pool.includes(k) ? pool.filter((c) => c !== k) : [...pool, k];
+    if (next.length >= minPool && next.length <= maxPool) setCats(next, random);
+  };
+  const setRandom = (r: number | null) => {
+    if (r === random) return;
+    if (r === null) setCats(pool.length <= MAX_CATEGORIES ? pool : DEFAULT_CATEGORIES, null);
+    // Al pasar a azar arranca con todas; si ya era azar, conserva el pozo si alcanza.
+    else setCats(random !== null && pool.length > r ? pool : allKeys, r);
+  };
+  const pill = (active: boolean) =>
+    `rounded-xl border px-4 py-2 text-sm font-semibold transition disabled:cursor-default ${
+      active ? "border-ink bg-ink text-paper" : "border-line bg-card enabled:hover:border-ink"
+    } ${!isOwner && !active ? "opacity-50" : ""}`;
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-6 px-4 pt-6 pb-24 sm:px-6 lg:pt-10">
@@ -225,12 +256,88 @@ function Table({ g }: { g: G }) {
                           );
                         })}
                       </div>
+                      <span className="mt-3 text-sm font-medium">
+                        Categorías{!isOwner && <span className="text-muted"> · las elige {ownerName}</span>}
+                      </span>
+                      <div role="radiogroup" aria-label="Modo de categorías" className="flex flex-wrap justify-center gap-2">
+                        {([null, 5] as const).map((r) => {
+                          const active = r === null ? random === null : random !== null;
+                          return (
+                            <button
+                              key={String(r)}
+                              role="radio"
+                              aria-checked={active}
+                              disabled={!isOwner}
+                              onClick={() => !active && setRandom(r)}
+                              className={pill(active)}
+                            >
+                              {r === null ? "Fijas" : "Al azar cada ronda"}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {random !== null && (
+                        <div className="flex flex-wrap items-center justify-center gap-2">
+                          <span className="text-sm text-muted">¿Cuántas por ronda?</span>
+                          <div role="radiogroup" aria-label="Categorías por ronda" className="flex gap-2">
+                            {RANDOM_COUNT_OPTIONS.map((n) => (
+                              <button
+                                key={n}
+                                role="radio"
+                                aria-checked={n === random}
+                                disabled={!isOwner}
+                                onClick={() => setRandom(n)}
+                                className={pill(n === random)}
+                              >
+                                {n}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <span className="text-sm text-muted">
+                        {random === null
+                          ? `Se juegan siempre estas (${pool.length})${isOwner ? ` · elegí entre ${MIN_CATEGORIES} y ${MAX_CATEGORIES}` : ""}`
+                          : `Cada ronda se sortean ${random} de estas ${pool.length}`}
+                      </span>
+                      <div
+                        role="group"
+                        aria-label="Categorías"
+                        className="flex max-w-xl flex-wrap justify-center gap-2"
+                      >
+                        {CATEGORIES.map(({ key, label }) => {
+                          const on = pool.includes(key);
+                          const blocked = on ? pool.length <= minPool : pool.length >= maxPool;
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              aria-pressed={on}
+                              disabled={!isOwner || blocked}
+                              title={
+                                isOwner && blocked
+                                  ? on
+                                    ? `Tiene que haber al menos ${minPool}`
+                                    : `Máximo ${maxPool} categorías`
+                                  : undefined
+                              }
+                              onClick={() => toggleCat(key)}
+                              className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition disabled:cursor-default ${
+                                on ? "border-ink bg-ink text-paper" : "border-line bg-card enabled:hover:border-ink"
+                              } ${!on && (blocked || !isOwner) ? "opacity-50" : ""}`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   ) : (
                     <p className="text-sm font-medium">
                       {maxRounds !== null
                         ? `Partida a ${maxRounds} rondas · faltan ${maxRounds - results.length}`
                         : "Partida sin límite · si nadie gira en 15 min, la partida termina"}
+                      {random !== null && ` · ${random} categorías al azar por ronda`}
                     </p>
                   )}
                   <p className="max-w-md text-sm text-muted">
@@ -263,7 +370,7 @@ function Table({ g }: { g: G }) {
                 </div>
                 <div className="flex-1">
                   <p className="font-display text-2xl font-extrabold tracking-tight sm:text-3xl">Todo con {game.letter}</p>
-                  <p className="text-sm text-muted">Completá las 5 y cantá ¡Basta!</p>
+                  <p className="text-sm text-muted">Completá las {cats.length} y cantá ¡Basta!</p>
                 </div>
                 {phase === "playing" && deadline && (
                   <span
@@ -295,6 +402,7 @@ function Table({ g }: { g: G }) {
 
               <AnswerForm
                 letter={game.letter}
+                categories={cats}
                 answers={draft}
                 onChange={onChange}
                 stopping={phase === "stopping"}
@@ -328,12 +436,16 @@ function Table({ g }: { g: G }) {
           {phase === "review" && state && (
             <Review
               letter={game.letter ?? ""}
+              categories={cats}
               answers={state.answers}
               invalid={state.invalid}
+              votes={state.votes ?? {}}
               preview={state.preview ?? {}}
+              now={now || state.serverNow}
+              markUntil={markDeadline(game, now || state.serverNow)}
               nameOf={nameOf}
               me={me}
-              onToggle={(target, cat) => send({ type: "toggleInvalid", target, cat })}
+              onVote={(target, cat, value) => send({ type: "vote", target, cat, value })}
               onClose={() => send({ type: "closeRound" })}
               isOwner={isOwner}
               ownerName={ownerName}

@@ -1,5 +1,5 @@
 // Premios y curiosidades del final de la partida. Funciones puras, sin I/O.
-import { CATEGORIES, type CategoryKey, type RoundResult, normalize } from "./game";
+import { type CategoryKey, type RoundResult, categoryLabel, gameCategories, normalize } from "./game";
 
 export type Award = {
   key: string;
@@ -38,7 +38,7 @@ export function rarity(norm: string): number {
   return sum / ls.length;
 }
 
-const catLabel = (k: CategoryKey) => CATEGORIES.find((c) => c.key === k)?.label ?? k;
+const catLabel = (k: CategoryKey) => categoryLabel(k);
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** Ids con el valor más alto (si es > 0). */
@@ -58,7 +58,7 @@ export function computeAwards(results: RoundResult[]): Award[] {
   for (const r of results) {
     if (!r.answers) continue;
     for (const [player, ans] of Object.entries(r.answers)) {
-      for (const { key } of CATEGORIES) {
+      for (const key of gameCategories(r)) {
         const raw = (ans?.[key] ?? "").trim();
         entries.push({ player, cat: key, raw, norm: normalize(raw), points: r.points[player]?.[key] ?? 0 });
       }
@@ -192,7 +192,7 @@ export function computeAwards(results: RoundResult[]): Award[] {
       let total = 0;
       let zero = 0;
       for (const id of Object.keys(r.answers!)) {
-        for (const { key } of CATEGORIES) {
+        for (const key of gameCategories(r)) {
           total++;
           if ((r.points[id]?.[key] ?? 0) === 0) zero++;
         }

@@ -2,16 +2,71 @@
 
 export const LETTERS = "ABCDEFGHIJLMNOPRSTUVZ".split("");
 
+/** Todas las categorías posibles; el dueño elige cuáles se juegan. */
 export const CATEGORIES = [
   { key: "nombre", label: "Nombre" },
   { key: "serie", label: "Serie / Película" },
   { key: "lugar", label: "Lugar" },
   { key: "color", label: "Color" },
   { key: "marca", label: "Marca" },
+  { key: "animal", label: "Animal" },
+  { key: "fruta", label: "Fruta o verdura" },
+  { key: "comida", label: "Comida" },
+  { key: "objeto", label: "Cosa u objeto" },
+  { key: "famoso", label: "Persona famosa" },
+  { key: "cantante", label: "Cantante o banda" },
+  { key: "ropa", label: "Ropa o accesorio" },
+  { key: "excusa", label: "Excusa para llegar tarde" },
 ] as const;
 
 export type CategoryKey = (typeof CATEGORIES)[number]["key"];
-export type Answers = Record<CategoryKey, string>;
+/** Respuestas de un jugador: solo las categorías que se juegan en la partida. */
+export type Answers = Partial<Record<CategoryKey, string>>;
+
+export const DEFAULT_CATEGORIES: CategoryKey[] = ["nombre", "serie", "lugar", "color", "marca"];
+export const MIN_CATEGORIES = 3;
+export const MAX_CATEGORIES = 8;
+export const ANSWER_MAX_LEN = 80;
+
+export const categoryLabel = (k: string) => CATEGORIES.find((c) => c.key === k)?.label ?? k;
+export const isCategory = (k: unknown): k is CategoryKey => CATEGORIES.some((c) => c.key === k);
+
+/** Las categorías de la partida, en el orden de la lista (partidas viejas: las 5 de siempre). */
+export function gameCategories(g: { categories?: CategoryKey[] | null }): CategoryKey[] {
+  const set = new Set(g.categories?.length ? g.categories : DEFAULT_CATEGORIES);
+  return CATEGORIES.map((c) => c.key).filter((k) => set.has(k));
+}
+
+/** Modo al azar: cuántas categorías se sortean por ronda. */
+export const RANDOM_COUNT_OPTIONS = [3, 4, 5, 6];
+
+/**
+ * Valida una elección de categorías, sin repetir. Fijas (`random` null): de
+ * MIN a MAX. Al azar: más categorías que las que salen por ronda, para que
+ * haya sorteo. Devuelve null si no sirve.
+ */
+export function cleanCategories(input: unknown, random: number | null = null): CategoryKey[] | null {
+  if (!Array.isArray(input) || input.length === 0 || !input.every(isCategory)) return null;
+  const cats = gameCategories({ categories: [...new Set(input)] });
+  if (random === null) {
+    return cats.length >= MIN_CATEGORIES && cats.length <= MAX_CATEGORIES ? cats : null;
+  }
+  return RANDOM_COUNT_OPTIONS.includes(random) && cats.length > random ? cats : null;
+}
+
+/** Sortea `n` categorías del pozo, en el orden de la lista. */
+export function pickCategories(pool: CategoryKey[], n: number, rand: () => number = Math.random): CategoryKey[] {
+  const left = [...pool];
+  const out: CategoryKey[] = [];
+  while (out.length < n && left.length) out.push(left.splice(Math.floor(rand() * left.length), 1)[0]);
+  return gameCategories({ categories: out });
+}
+
+/** Las categorías que se juegan en la ronda actual (las sorteadas, en modo al azar). */
+export function roundCategories(g: Pick<Game, "categories" | "randomCats" | "roundCats">): CategoryKey[] {
+  if (g.randomCats && g.roundCats?.length) return gameCategories({ categories: g.roundCats });
+  return gameCategories(g);
+}
 
 export const SPIN_MS = 4500;
 /** Cuenta regresiva después de ¡Basta! para terminar de escribir. */
@@ -37,8 +92,12 @@ export type RoundResult = {
   answers?: Record<string, Answers>;
   /** Respuestas anuladas, como "playerId|categoria". */
   invalid?: string[];
+  /** Resultado de las votaciones de la ronda, sin decir quién votó qué (no está en partidas viejas). */
+  votes?: Record<string, { no: number; yes: number }>;
   /** Quién cantó ¡Basta! (null si se cortó por tiempo). */
   bastaBy?: string | null;
+  /** Categorías jugadas (partidas viejas: las 5 de siempre). */
+  categories?: CategoryKey[];
 };
 
 export type Game = {
@@ -52,6 +111,12 @@ export type Game = {
   results: RoundResult[];
   /** null = sin límite (también en partidas guardadas antes de existir el campo). */
   maxRounds?: number | null;
+  /** Categorías que se juegan, o el pozo del que se sortean (las elige el dueño antes de la primera ronda). */
+  categories?: CategoryKey[];
+  /** Al azar: cuántas se sortean por ronda. null = siempre las mismas. */
+  randomCats?: number | null;
+  /** Las sorteadas para la ronda actual (solo en modo al azar). */
+  roundCats?: CategoryKey[] | null;
   /** Hora en que se cerró la última ronda. */
   closedAt?: number | null;
   /** Quién tenía el turno en el último giro (para pasarle el turno al siguiente). */
@@ -68,6 +133,9 @@ export const initialGame = (): Game => ({
   usedLetters: [],
   results: [],
   maxRounds: null,
+  categories: [...DEFAULT_CATEGORIES],
+  randomCats: null,
+  roundCats: null,
   closedAt: null,
   lastSpinner: null,
 });
@@ -95,13 +163,8 @@ export function roomRoles(
   return { ownerId, turnId: online[0].id };
 }
 
-export const emptyAnswers = (): Answers => ({
-  nombre: "",
-  serie: "",
-  lugar: "",
-  color: "",
-  marca: "",
-});
+export const emptyAnswers = (cats: CategoryKey[] = DEFAULT_CATEGORIES): Answers =>
+  Object.fromEntries(cats.map((k) => [k, ""]));
 
 type Timing = Pick<Game, "status" | "spinAt" | "bastaAt">;
 
@@ -175,24 +238,41 @@ export function startsWithLetter(answer: string, letter: string): boolean {
 
 const VOWELS = /[aeiouy]/;
 
+/** Donde valen palabras de dos letras: Té, TV, LG, U2. */
+const SHORT_OK = new Set<CategoryKey>(["marca", "comida", "objeto", "famoso", "cantante"]);
+/** Donde una sigla escrita en mayúsculas vale aunque no tenga vocales: BTS, JFK, NYC, TV. */
+const SIGLA_OK = new Set<CategoryKey>(["marca", "cantante", "famoso", "objeto", "lugar", "serie"]);
+/** Nombres propios, muchas veces extranjeros: Nietzsche, Schwarzenegger. */
+const FOREIGN_OK = new Set<CategoryKey>(["famoso", "cantante", "marca"]);
+
+/** Escrita toda en mayúsculas, corta y con alguna letra: BTS, AC/DC, U2, H&M. */
+function isSigla(raw: string): boolean {
+  const alnum = raw.replace(/[^A-Za-zÑñ0-9]/g, "");
+  return /^[A-ZÑ0-9&.\-/ ]+$/.test(raw) && /[A-ZÑ]/.test(raw) && alnum.length >= 2 && alnum.length <= 6;
+}
+
 /**
  * Por qué una respuesta no vale, o null si pasa los controles automáticos.
  * No es un diccionario: atrapa "h", "hhh", "Hxzq" y cosas así. Lo demás se
- * anula a mano en la revisión. Las marcas pueden ser siglas (LG, HP, H&M).
+ * anula por votación en la revisión. Según la categoría acepta siglas
+ * (LG, BTS, TV), palabras de dos letras (Té) y apellidos extranjeros.
  */
-export function answerProblem(answer: string, letter: string, cat: CategoryKey): string | null {
-  const n = normalize(answer);
+export function answerProblem(answer: string | undefined, letter: string, cat: CategoryKey): string | null {
+  const raw = (answer ?? "").trim();
+  const n = normalize(raw);
   if (!n) return null; // vacía: no es "inválida", simplemente no suma
   if (!n.startsWith(normalize(letter))) return `No empieza con ${letter}`;
   const ls = n.replace(/[^a-zñ]/g, "");
-  const isBrand = cat === "marca";
-  const min = isBrand ? 2 : 3;
-  if (ls.length < min) return `Muy corta (mínimo ${min} letras)`;
-  if (/^(.)\1*$/.test(ls)) return "No es una palabra";
+  const sigla = cat === "marca" || (SIGLA_OK.has(cat) && isSigla(raw));
+  const min = SHORT_OK.has(cat) || sigla ? 2 : 3;
+  // En siglas cuentan los números (U2, 3M).
+  const chars = sigla ? n.replace(/[^a-z0-9ñ]/g, "") : ls;
+  if (chars.length < min) return `Muy corta (mínimo ${min} letras)`;
+  if (/^(.)\1*$/.test(chars)) return "No es una palabra";
   if (/([a-zñ])\1\1/.test(ls)) return "Tiene letras repetidas de más";
-  if (!isBrand) {
+  if (!sigla) {
     if (!VOWELS.test(ls)) return "No es una palabra (sin vocales)";
-    if (n.split(" ").some((w) => /[^aeiouy\s\d]{5,}/.test(w))) return "No es una palabra";
+    if (!FOREIGN_OK.has(cat) && n.split(" ").some((w) => /[^aeiouy\s\d]{5,}/.test(w))) return "No es una palabra";
   }
   return null;
 }
@@ -200,19 +280,89 @@ export function answerProblem(answer: string, letter: string, cat: CategoryKey):
 export const invalidKey = (playerId: string, cat: CategoryKey) => `${playerId}|${cat}`;
 
 /**
+ * Votos de la revisión: "playerId|categoria" -> votante -> true si dice que
+ * vale, false si dice que no vale. Una respuesta entra en votación cuando
+ * alguien vota "no vale".
+ */
+export type Votes = Record<string, Record<string, boolean>>;
+
+/**
+ * Respuestas anuladas por votación: más votos "no vale" que "vale". El empate
+ * favorece a quien la escribió, y su propio voto no cuenta. Solo cuentan los
+ * votos de quienes siguen en la sala.
+ */
+export function invalidFromVotes(votes: Votes, voters?: Set<string>): string[] {
+  const out: string[] = [];
+  for (const [key, byVoter] of Object.entries(votes)) {
+    const author = key.split("|")[0];
+    let no = 0;
+    let yes = 0;
+    for (const [voter, ok] of Object.entries(byVoter)) {
+      if (voter === author || (voters && !voters.has(voter))) continue;
+      if (ok) yes++;
+      else no++;
+    }
+    if (no > yes) out.push(key);
+  }
+  return out.sort();
+}
+
+/** Cuánto dura cada votación. */
+export const VOTE_MS = 20_000;
+/** Al empezar la revisión, cuánto tiempo hay para marcar palabras y abrir votaciones. */
+export const MARK_MS = 20_000;
+
+/** Hasta cuándo se pueden marcar palabras: 20 s desde que empieza la revisión. */
+export function markDeadline(game: Pick<Game, "status" | "spinAt" | "bastaAt">, now: number): number | null {
+  const basta = effectiveBastaAt(game, now);
+  return basta === null ? null : basta + STOP_MS + MARK_MS;
+}
+
+/**
+ * Lo que ve cada jugador de una votación: los totales y su propio voto,
+ * nunca quién votó qué.
+ */
+export type VoteTally = {
+  no: number;
+  yes: number;
+  mine: "si" | "no" | null;
+  /** Conectados que pueden votar y todavía no votaron. */
+  pending: number;
+  /** Hora en que se cierra sola. */
+  endsAt: number;
+  /** Ya votaron todos los que podían. */
+  done: boolean;
+};
+
+export const voteClosed = (t: Pick<VoteTally, "endsAt" | "done">, now: number) => t.done || now >= t.endsAt;
+
+/** Convierte el hash guardado ("autor|cat|votante" -> "no"/"si") en Votes. */
+export function parseVotes(h: Record<string, string>): Votes {
+  const out: Votes = {};
+  for (const [field, v] of Object.entries(h)) {
+    const [author, cat, voter] = field.split("|");
+    if (!author || !cat || !voter || (v !== "si" && v !== "no")) continue;
+    const key = `${author}|${cat}`;
+    (out[key] ??= {})[voter] = v === "si";
+  }
+  return out;
+}
+
+/**
  * 10 si la respuesta válida es única, 5 si otro jugador puso lo mismo,
  * 0 si está vacía, no empieza con la letra o fue marcada como inválida.
  */
 export function scoreRound(
   letter: string,
-  answers: Record<string, Partial<Answers>>,
+  answers: Record<string, Answers>,
   invalid: Set<string>,
+  cats: CategoryKey[] = DEFAULT_CATEGORIES,
 ): RoundResult["points"] {
   const points: RoundResult["points"] = {};
   const ids = Object.keys(answers);
   for (const id of ids) points[id] = {};
 
-  for (const { key } of CATEGORIES) {
+  for (const key of cats) {
     const valid = new Map<string, string>();
     for (const id of ids) {
       const raw = answers[id]?.[key] ?? "";
@@ -240,16 +390,16 @@ export function totals(results: RoundResult[]): Record<string, number> {
   return t;
 }
 
-export function isComplete(a: Partial<Answers>): boolean {
-  return CATEGORIES.every(({ key }) => (a[key] ?? "").trim().length > 0);
+export function isComplete(a: Answers, cats: CategoryKey[] = DEFAULT_CATEGORIES): boolean {
+  return cats.every((key) => (a[key] ?? "").trim().length > 0);
 }
 
-export function sanitizeAnswers(input: unknown): Answers {
-  const out = emptyAnswers();
+export function sanitizeAnswers(input: unknown, cats: CategoryKey[] = DEFAULT_CATEGORIES): Answers {
+  const out = emptyAnswers(cats);
   if (input && typeof input === "object") {
-    for (const { key } of CATEGORIES) {
+    for (const key of cats) {
       const v = (input as Record<string, unknown>)[key];
-      if (typeof v === "string") out[key] = v.slice(0, 60);
+      if (typeof v === "string") out[key] = v.slice(0, ANSWER_MAX_LEN);
     }
   }
   return out;
@@ -285,6 +435,8 @@ export type ClientState = {
   /** En revisión: las de todos. Antes: solo las del que pregunta. */
   answers: Record<string, Answers>;
   invalid: string[];
+  /** Votaciones de la revisión, "playerId|categoria" -> totales (vacío fuera de la revisión). */
+  votes: Record<string, VoteTally>;
   results: RoundResult[];
   totals: Record<string, number>;
   /** Puntos en vivo de la ronda en revisión. */
