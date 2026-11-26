@@ -421,6 +421,8 @@ export const CHAT_MAX_LEN = 200;
 export const HEARTBEAT_MS = 10_000;
 /** Sin señales por este tiempo, se considera que la persona se fue. */
 export const PRESENCE_TIMEOUT_MS = 30_000;
+/** Con la pestaña oculta se consulta así de seguido: menos que el tiempo para darlo por ido. */
+export const HIDDEN_POLL_MS = 15_000;
 
 /** Estado que recibe el navegador. */
 export type ClientState = {

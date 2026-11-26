@@ -26,7 +26,7 @@ const pressed = async (p, label) => (await chip(p, label).getAttribute("aria-pre
 
 await join(a, "Ana");
 await join(b, "Beto");
-await sleep(1500);
+await sleep(2500);
 check(await pressed(a, "Nombre") && !(await pressed(a, "Animal")), "arranca con las 5 de siempre");
 check(await chip(b, "Animal").isDisabled(), "Beto no puede cambiarlas");
 
@@ -35,7 +35,7 @@ for (const l of ["Animal", "Excusa para llegar tarde", "Serie / Película", "Col
   await chip(a, l).click();
   await sleep(700);
 }
-await sleep(1200);
+await sleep(2500);
 check(await pressed(b, "Excusa para llegar tarde") && !(await pressed(b, "Marca")), "Beto ve la elección de Ana");
 check((await a.textContent("main")).includes("Se juegan siempre estas (4)"), "muestra cuántas hay elegidas");
 await a.screenshot({ path: `${OUT}/cat-1-sala-desktop.png`, fullPage: true });

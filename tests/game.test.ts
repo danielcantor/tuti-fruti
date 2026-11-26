@@ -24,6 +24,7 @@ import {
 import { computeAwards } from "@/lib/awards";
 import { act, getState } from "@/lib/engine";
 import { createMemoryStore, getStore, hashFromReply, setStore } from "@/lib/store";
+import { pollDelay } from "@/lib/useGame";
 
 describe("normalize", () => {
   it("saca acentos, mayúsculas y espacios pero conserva la ñ", () => {
@@ -389,6 +390,18 @@ describe("categorías al azar en cada ronda", () => {
     expect(fresh.game.randomCats).toBe(3);
     expect(fresh.game.roundCats).toBeNull();
     vi.useRealTimers();
+  });
+});
+
+describe("cada cuánto consulta el navegador", () => {
+  it("rápido mientras se juega, lento en la sala y el final, casi nada con la pestaña oculta", () => {
+    expect(pollDelay("stopping", false)).toBe(500);
+    expect(pollDelay("playing", false)).toBe(1000);
+    expect(pollDelay("review", false)).toBe(1000);
+    expect(pollDelay("lobby", false)).toBe(2000);
+    expect(pollDelay("finished", false)).toBe(5000);
+    expect(pollDelay("playing", true)).toBe(15_000);
+    expect(pollDelay("playing", true)).toBeLessThan(30_000); // antes de darlo por ido
   });
 });
 

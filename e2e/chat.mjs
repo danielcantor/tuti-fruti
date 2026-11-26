@@ -34,14 +34,14 @@ const say = async (p, text) => {
 
 await openChat(a);
 await say(a, "¡Hola! ¿Arrancamos?");
-await sleep(1800);
+await sleep(2500);
 check((await b.getByTestId("chat-unread").textContent()) === "1", "Beto ve 1 mensaje sin leer");
 
 await openChat(b);
 check(await b.getByText("¡Hola! ¿Arrancamos?").isVisible(), "Beto lee el mensaje de Ana");
 check((await b.getByTestId("chat-unread").count()) === 0, "al abrir, el contador desaparece");
 await say(b, "Dale, girá");
-await sleep(1800);
+await sleep(2500);
 check(await a.getByText("Dale, girá").isVisible(), "Ana ve la respuesta de Beto");
 await a.screenshot({ path: `${OUT}/chat-desktop.png` });
 await b.screenshot({ path: `${OUT}/chat-mobile.png` });
