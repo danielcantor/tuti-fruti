@@ -22,8 +22,11 @@ Puntaje: 10 si la respuesta es única, 5 si alguien más puso lo mismo, 0 si est
 no empieza con la letra o fue anulada.
 
 ## Stack
-Next.js (App Router) + Tailwind CSS v4 + Upstash Redis. Los navegadores consultan `/api/state`
-cada segundo; si nada cambió, el servidor responde con una sola lectura de Redis.
+Next.js (App Router) + Tailwind CSS v4 + Upstash Redis. Los navegadores consultan `/api/state`;
+si nada cambió, el servidor responde con una sola lectura de Redis. Cada consulta cuenta para el
+plan gratis del hosting, así que la frecuencia depende del momento: cada 1 s durante la ronda y la
+revisión (0,5 s en la cuenta regresiva de ¡Basta!), cada 2 s en la sala de espera, cada 5 s en la
+pantalla final y cada 15 s con la pestaña oculta (alcanza para no figurar como desconectado).
 
 ## Deploy en Vercel
 1. Importar el repo en Vercel.
@@ -31,14 +34,27 @@ cada segundo; si nada cambió, el servidor responde con una sola lectura de Redi
    variables `KV_REST_API_URL` y `KV_REST_API_TOKEN` (también sirven `UPSTASH_REDIS_REST_*`).
 3. Volver a desplegar.
 
+## Deploy en Netlify
+1. Crear una base Redis gratis en [upstash.com](https://upstash.com) (o usar la que ya existe, si
+   sigue accesible desde la consola de Upstash) y copiar la URL y el token REST.
+2. En Netlify: **Add new project → Import an existing project** y elegir el repo. Netlify detecta
+   Next.js solo; `netlify.toml` fija el comando de build y Node 22.
+3. En **Project configuration → Environment variables**, cargar `KV_REST_API_URL` y
+   `KV_REST_API_TOKEN` (o `UPSTASH_REDIS_REST_URL` y `UPSTASH_REDIS_REST_TOKEN`).
+4. Desplegar. Sin esas variables el juego no arranca y el log de funciones lo dice.
+
+Las vistas previas de Netlify (deploy previews y branch deploys) usan otro prefijo en Redis, igual
+que las de Vercel, para no mezclar partidas con producción. En el plan gratis cada deploy a
+producción gasta créditos, así que conviene no desplegar por cada cambio chico.
+
 ## Desarrollo
 ```bash
 npm install
 npm run dev        # sin variables de Redis usa memoria (solo para probar en local)
 npm test           # lógica y partida completa
 ```
-Pruebas con dos navegadores (Playwright): `node e2e/two-players.mjs http://localhost:3000` 
-`node e2e/three-rounds.mjs http://localhost:3000` y `node e2e/votes.mjs http://localhost:3000`
-(tres jugadores votando) `node e2e/categories.mjs http://localhost:3000` (elegir categorías) y
-`node e2e/random-categories.mjs http://localhost:3000` (categorías al azar);
-correr cada una con el servidor recién iniciado.
+Pruebas de navegador (Playwright), cada una con el servidor recién iniciado
+(`NODE_PATH="$(npm root -g)" node e2e/<prueba>.mjs http://localhost:3000`):
+`two-players` (partida con dos), `three-rounds` (partida a 3 rondas), `votes` (tres jugadores
+votando), `categories` (elegir categorías), `random-categories` (categorías al azar), `chat` y
+`presence` (avisos de entrada y salida).

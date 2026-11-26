@@ -26,13 +26,13 @@ const labelsOf = async (p) =>
 
 await join(a, "Ana");
 await join(b, "Beto");
-await sleep(1500);
+await sleep(2500);
 
 await a.getByRole("radio", { name: "Al azar cada ronda" }).click();
-await sleep(1500);
+await sleep(2500);
 check((await b.textContent("main")).includes("Cada ronda se sortean 5 de estas 13"), "al pasar a azar arranca con las 13 y 5 por ronda");
 await a.getByRole("radiogroup", { name: "Categorías por ronda" }).getByRole("radio", { name: "3" }).click();
-await sleep(1500);
+await sleep(2500);
 check((await b.textContent("main")).includes("Cada ronda se sortean 3 de estas 13"), "Beto ve que se sortean 3");
 await a.screenshot({ path: `${OUT}/azar-1-sala-desktop.png`, fullPage: true });
 await b.screenshot({ path: `${OUT}/azar-1-sala-mobile.png`, fullPage: true });

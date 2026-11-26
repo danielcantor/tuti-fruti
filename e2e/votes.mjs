@@ -26,7 +26,7 @@ async function join(page, name) {
 await join(a, "Ana");
 await join(b, "Beto");
 await join(c, "Caro");
-await sleep(1500);
+await sleep(2500);
 await a.getByRole("button", { name: "Girar la ruleta" }).click();
 await sleep(6500);
 const L = (await a.locator(".animate-pop").textContent()).trim();

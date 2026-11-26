@@ -36,9 +36,9 @@ import {
 } from "./game";
 import { getStore } from "./store";
 
-// Las vistas previas de Vercel comparten la base de Upstash con producción:
-// usan otro prefijo para no mezclar partidas.
-const P = process.env.VERCEL_ENV === "preview" ? "tfp:" : "tf:";
+// Las vistas previas (de Vercel o Netlify) comparten la base de Upstash con
+// producción: usan otro prefijo para no mezclar partidas.
+const P = process.env.TF_PREVIEW || process.env.VERCEL_ENV === "preview" ? "tfp:" : "tf:";
 
 const K = {
   game: `${P}game`,

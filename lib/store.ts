@@ -148,8 +148,12 @@ export function getStore(): Store {
   if (url && token) {
     g.__tfStore = new RedisStore(new Redis({ url, token, automaticDeserialization: false }));
   } else {
-    if (process.env.VERCEL) {
-      throw new Error("Falta conectar Upstash Redis (UPSTASH_REDIS_REST_URL / KV_REST_API_URL).");
+    // En un hosting cada función tiene su propia memoria: sin Redis la partida
+    // se rompería sin avisar, así que mejor fallar con un mensaje claro.
+    if (process.env.TF_HOSTING || process.env.VERCEL || process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+      throw new Error(
+        "Falta conectar Upstash Redis: cargá KV_REST_API_URL y KV_REST_API_TOKEN (o UPSTASH_REDIS_REST_*).",
+      );
     }
     g.__tfStore = new MemoryStore();
   }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type ClientState, HEARTBEAT_MS, type Phase, derivePhase, initialGame } from "./game";
+import { type ClientState, HEARTBEAT_MS, HIDDEN_POLL_MS, type Phase, derivePhase, initialGame } from "./game";
 
 const PID_KEY = "tf:pid";
 const NAME_KEY = "tf:name";
@@ -19,6 +19,28 @@ function safeSet(k: string, v: string | null) {
     else localStorage.setItem(k, v);
   } catch {
     /* sin storage: sigue funcionando en esta pestaña */
+  }
+}
+
+const isHidden = () => typeof document !== "undefined" && document.visibilityState === "hidden";
+
+/**
+ * Cada cuánto consultar al servidor según la fase. Con la pestaña oculta
+ * alcanza con avisar "sigo acá" antes de que se cumplan los 30 s sin señales.
+ */
+export function pollDelay(phase: Phase | null, hidden: boolean): number {
+  if (hidden) return HIDDEN_POLL_MS;
+  switch (phase) {
+    case "stopping":
+      return 500; // cuenta regresiva de ¡Basta!: hay que guardar lo último que se escribe
+    case "spinning":
+    case "playing":
+    case "review":
+      return 1000; // ¡Basta! de otro y votos: tienen que llegar rápido
+    case "finished":
+      return 5000;
+    default:
+      return 2000; // sala de espera y chat
   }
 }
 
@@ -87,21 +109,30 @@ export function useGame() {
     }
   }, [pid]);
 
-  // Polling: 1 s normalmente, más rápido durante el giro o la cuenta regresiva.
+  // Polling: cada consulta es una llamada al servidor y es lo que más gasta
+  // del plan gratis del hosting, así que se consulta solo lo necesario.
   useEffect(() => {
     if (!pid) return;
     let stop = false;
     let t: ReturnType<typeof setTimeout>;
+    let gen = 0; // si se reinicia el ciclo, el anterior no agenda otra consulta
     const loop = async () => {
+      const my = ++gen;
+      clearTimeout(t);
       await poll();
-      if (stop) return;
-      const p = phaseRef.current;
-      t = setTimeout(loop, p === "spinning" || p === "stopping" ? 400 : 1000);
+      if (stop || my !== gen) return;
+      t = setTimeout(loop, pollDelay(phaseRef.current, isHidden()));
     };
+    // Al volver a la pestaña, ponerse al día enseguida.
+    const onVisible = () => {
+      if (!isHidden()) loop();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     loop();
     return () => {
       stop = true;
       clearTimeout(t);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [pid, poll]);
 

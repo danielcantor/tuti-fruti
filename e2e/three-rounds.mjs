@@ -31,7 +31,7 @@ check(await b.getByText("Le toca girar a Ana").isVisible(), "Beto ve que le toca
 check(await a.getByText("dueño de la sala").isVisible(), "Ana es la dueña de la sala");
 check(await b.getByRole("radio", { name: "3 rondas" }).isDisabled(), "Beto no puede elegir las rondas");
 await a.getByRole("radio", { name: "3 rondas" }).click();
-await sleep(1500);
+await sleep(2500);
 check((await b.getByRole("radio", { name: "3 rondas" }).getAttribute("aria-checked")) === "true", "Beto ve elegidas 3 rondas");
 await a.screenshot({ path: `${OUT}/r-1-selector.png` });
 

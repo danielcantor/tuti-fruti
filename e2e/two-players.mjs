@@ -28,11 +28,11 @@ async function join(page, name) {
 await join(a, "Ana");
 await a.screenshot({ path: `${OUT}/1-lobby-desktop.png` });
 await join(b, "Beto");
-await sleep(1500);
+await sleep(2500);
 check((await a.textContent("body")).includes("Beto"), "Ana ve a Beto en la sala");
 
 await a.getByRole("button", { name: "Girar la ruleta" }).click();
-await sleep(1500);
+await sleep(2500);
 await b.screenshot({ path: `${OUT}/2-girando-mobile.png` });
 check((await b.textContent("body")).includes("Girando"), "Beto ve la ruleta girando");
 await sleep(4500);
