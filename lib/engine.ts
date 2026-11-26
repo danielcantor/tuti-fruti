@@ -4,6 +4,7 @@ import {
   type ChatMessage,
   type ClientState,
   type Game,
+  type Votes,
   CATEGORIES,
   CHAT_MAX_LEN,
   GRACE_MS,
@@ -12,9 +13,12 @@ import {
   STOP_MS,
   derivePhase,
   effectiveBastaAt,
+  answerProblem,
   initialGame,
+  invalidFromVotes,
   invalidKey,
   isComplete,
+  parseVotes,
   pickLetter,
   roomRoles,
   sanitizeAnswers,
@@ -35,7 +39,7 @@ const K = {
   seen: `${P}seen`,
   present: `${P}present`,
   answers: (round: number) => `${P}answers:${round}`,
-  invalid: (round: number) => `${P}invalid:${round}`,
+  votes: (round: number) => `${P}votes:${round}`,
 };
 
 const CHAT_KEEP = 100;
@@ -127,6 +131,19 @@ export async function heartbeat(playerId: string): Promise<void> {
   if (changed) await store.incr(K.ver);
 }
 
+/** Votos de la ronda y las respuestas que quedan anuladas por mayoría. */
+async function loadVotes(round: number, playerIds: string[]): Promise<{ votes: Votes; invalid: string[] }> {
+  const ids = new Set(playerIds);
+  const all = parseVotes(await getStore().hgetall(K.votes(round)));
+  // Los votos de quien se fue de la sala no se muestran ni cuentan.
+  const votes: Votes = {};
+  for (const [key, byVoter] of Object.entries(all)) {
+    const kept = Object.fromEntries(Object.entries(byVoter).filter(([v]) => ids.has(v)));
+    if (Object.values(kept).some((ok) => !ok)) votes[key] = kept;
+  }
+  return { votes, invalid: invalidFromVotes(votes, ids) };
+}
+
 /** Jugadores con hora de llegada y conexión, y los roles de la sala. */
 async function loadRoom(game?: Game) {
   const store = getStore();
@@ -173,12 +190,13 @@ export async function getState(
 
   let answers: Record<string, Answers> = {};
   let invalid: string[] = [];
+  let votes: Votes = {};
   let preview: ClientState["preview"] = null;
   if (game.round > 0) {
     const all = parseHash<Answers>(await store.hgetall(K.answers(game.round)));
     if (phase === "review") {
       answers = all;
-      invalid = Object.keys(await store.hgetall(K.invalid(game.round)));
+      ({ votes, invalid } = await loadVotes(game.round, room.players.map((p) => p.id)));
       preview = scoreRound(game.letter ?? "", all, new Set(invalid));
     } else if (playerId && all[playerId] && phase !== "lobby") {
       answers = { [playerId]: all[playerId] };
@@ -195,6 +213,7 @@ export async function getState(
     turnId: room.turnId,
     answers,
     invalid,
+    votes,
     results,
     totals: totals(results),
     preview,
@@ -209,7 +228,8 @@ export type Action =
   | { type: "setMaxRounds"; playerId: string; value: number | null }
   | { type: "answer"; playerId: string; answers: Partial<Answers> }
   | { type: "basta"; playerId: string; answers: Partial<Answers> }
-  | { type: "toggleInvalid"; playerId: string; target: string; cat: CategoryKey }
+  /** "no": no vale (abre la votación si nadie la había cuestionado), "si": vale, null: retirar el voto. */
+  | { type: "vote"; playerId: string; target: string; cat: CategoryKey; value: "si" | "no" | null }
   | { type: "closeRound"; playerId: string }
   | { type: "reset"; playerId: string }
   | { type: "chat"; playerId: string; text: string };
@@ -325,18 +345,32 @@ export async function act(body: unknown): Promise<void> {
       return;
     }
 
-    case "toggleInvalid": {
+    case "vote": {
       await requirePlayer();
       const { game } = await readGame();
-      if (derivePhase(game, Date.now()) !== "review") throw new GameError("Solo en la revisión");
+      if (derivePhase(game, Date.now()) !== "review") throw new GameError("Solo se vota en la revisión");
       if (!validId(a.target) || !CATEGORIES.some((c) => c.key === a.cat)) {
         throw new GameError("Pedido inválido", 400);
       }
-      const key = K.invalid(game.round);
-      const field = invalidKey(a.target, a.cat);
-      const cur = await store.hgetall(key);
-      if (cur[field]) await store.hdel(key, field);
-      else await store.hset(key, field, a.playerId);
+      if (a.value !== "si" && a.value !== "no" && a.value !== null) throw new GameError("Voto inválido", 400);
+      if (a.target === a.playerId) throw new GameError("No podés votar tu propia respuesta", 403);
+      const answer = parseHash<Answers>(await store.hgetall(K.answers(game.round)))[a.target]?.[a.cat] ?? "";
+      if (!answer.trim()) throw new GameError("Esa respuesta está vacía", 400);
+      if (answerProblem(answer, game.letter ?? "", a.cat)) {
+        throw new GameError("Esa respuesta ya no vale sola, no hace falta votarla", 400);
+      }
+      const key = K.votes(game.round);
+      const field = `${invalidKey(a.target, a.cat)}|${a.playerId}`;
+      if (a.value === null) {
+        await store.hdel(key, field);
+      } else {
+        if (a.value === "si") {
+          // "Vale" solo tiene sentido si alguien la cuestionó.
+          const open = Object.values(parseVotes(await store.hgetall(key))[invalidKey(a.target, a.cat)] ?? {});
+          if (!open.some((ok) => !ok)) throw new GameError("Nadie cuestionó esa respuesta", 400);
+        }
+        await store.hset(key, field, a.value);
+      }
       await store.incr(K.ver);
       return;
     }
@@ -345,12 +379,12 @@ export async function act(body: unknown): Promise<void> {
       await requirePlayer();
       await requireOwner("sumar los puntos y cerrar la ronda");
       const { game } = await readGame();
-      const [answersH, invalidH] = await Promise.all([
+      const room = await loadRoom(game);
+      const [answersH, { votes: roundVotes, invalid: roundInvalid }] = await Promise.all([
         store.hgetall(K.answers(game.round)),
-        store.hgetall(K.invalid(game.round)),
+        loadVotes(game.round, room.players.map((p) => p.id)),
       ]);
       const roundAnswers = parseHash<Answers>(answersH);
-      const roundInvalid = Object.keys(invalidH);
       const points = scoreRound(game.letter ?? "", roundAnswers, new Set(roundInvalid));
       await mutateGame((g, now) => {
         if (derivePhase(g, now) !== "review" || g.round !== game.round) return g;
@@ -370,6 +404,7 @@ export async function act(body: unknown): Promise<void> {
               points,
               answers: roundAnswers,
               invalid: roundInvalid,
+              votes: roundVotes,
               bastaBy: g.bastaBy,
             },
           ],
@@ -381,7 +416,9 @@ export async function act(body: unknown): Promise<void> {
     case "reset": {
       await requirePlayer();
       await requireOwner("empezar una partida nueva");
-      const keys = (await store.keys(`${P}answers:*`)).concat(await store.keys(`${P}invalid:*`));
+      const keys = (
+        await Promise.all([`${P}answers:*`, `${P}votes:*`, `${P}invalid:*`].map((k) => store.keys(k)))
+      ).flat();
       await store.del(...keys);
       await mutateGame((g) => ({ ...initialGame(), maxRounds: g.maxRounds ?? null }));
       return;

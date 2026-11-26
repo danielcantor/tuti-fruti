@@ -2,7 +2,12 @@
 
 Tuti Fruti multijugador para jugar con la oficina: ruleta de letras compartida, cinco categorías
 (Nombre, Serie/Película, Lugar, Color, Marca), botón **¡Basta!** con cuenta regresiva de 5 s,
-revisión donde cualquiera puede anular respuestas y tabla de puntos acumulada.
+revisión con votación para anular respuestas y tabla de puntos acumulada.
+
+Votación: en la revisión, cualquiera toca una respuesta que le parece que no vale y la lleva a
+votación. Todos ven quién votó «vale», quién votó «no vale» y a quién le falta votar. Se anula si
+hay más votos de «no vale» que de «vale»; si empatan, queda. Quien la escribió no vota, y los
+votos de quien se fue de la sala no cuentan. Al cerrar la ronda vale el resultado de ese momento.
 
 Antes de la primera ronda se elige cuántas rondas jugar (3, 5, 10 o sin límite); al terminar
 aparece el ganador. Cortes automáticos para que nada quede colgado: si nadie canta ¡Basta! en
@@ -27,5 +32,6 @@ npm install
 npm run dev        # sin variables de Redis usa memoria (solo para probar en local)
 npm test           # lógica y partida completa
 ```
-Pruebas con dos navegadores (Playwright): `node e2e/two-players.mjs http://localhost:3000` y
-`node e2e/three-rounds.mjs http://localhost:3000`.
+Pruebas con dos navegadores (Playwright): `node e2e/two-players.mjs http://localhost:3000` 
+`node e2e/three-rounds.mjs http://localhost:3000` y `node e2e/votes.mjs http://localhost:3000`
+(tres jugadores votando; correrla con el servidor recién iniciado).

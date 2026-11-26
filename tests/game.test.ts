@@ -8,8 +8,10 @@ import {
   derivePhase,
   roomRoles,
   initialGame,
+  invalidFromVotes,
   invalidKey,
   normalize,
+  parseVotes,
   pickLetter,
   scoreRound,
   totals,
@@ -124,7 +126,7 @@ describe("partida completa", () => {
     expect(rev.game.phase).toBe("review");
     expect(rev.preview![A]).toMatchObject({ nombre: 5, color: 10 });
 
-    await act({ type: "toggleInvalid", playerId: B, target: A, cat: "color" });
+    await act({ type: "vote", playerId: B, target: A, cat: "color", value: "no" });
     await expect(act({ type: "closeRound", playerId: B })).rejects.toThrow("dueño");
     await act({ type: "closeRound", playerId: A });
     const end = await getState(A, null);
@@ -135,6 +137,86 @@ describe("partida completa", () => {
 
     const same = await getState(A, end.ver);
     expect("same" in same).toBe(true);
+    vi.useRealTimers();
+  });
+});
+
+describe("votación de respuestas", () => {
+  it("invalidFromVotes: mayoría anula, empate queda, el autor y los que se fueron no cuentan", () => {
+    expect(invalidFromVotes({ "a|color": { b: false } })).toEqual(["a|color"]);
+    expect(invalidFromVotes({ "a|color": { b: false, c: true } })).toEqual([]);
+    expect(invalidFromVotes({ "a|color": { b: false, c: false, d: true } })).toEqual(["a|color"]);
+    expect(invalidFromVotes({ "a|color": { a: true, b: false } })).toEqual(["a|color"]);
+    expect(invalidFromVotes({ "a|color": { b: false, c: true, d: true } }, new Set(["b", "c"]))).toEqual([]);
+    expect(invalidFromVotes({ "a|color": { b: false } }, new Set(["a", "c"]))).toEqual([]);
+  });
+
+  it("parseVotes arma votante por respuesta e ignora basura", () => {
+    expect(parseVotes({ "a|color|b": "no", "a|color|c": "si", "x|y": "no", "a|lugar|b": "quizás" })).toEqual({
+      "a|color": { b: false, c: true },
+    });
+  });
+
+  it("tres jugadores: cuestionar, empatar, desempatar y retirar el voto", async () => {
+    setStore(createMemoryStore());
+    vi.useFakeTimers();
+    vi.setSystemTime(2_000_000);
+    const [A, B, C] = ["aaaaaaaa-1111", "bbbbbbbb-2222", "cccccccc-3333"];
+    await act({ type: "join", playerId: A, name: "Ana" });
+    await act({ type: "join", playerId: B, name: "Beto" });
+    await act({ type: "join", playerId: C, name: "Caro" });
+    await act({ type: "spin", playerId: A });
+    vi.advanceTimersByTime(400 + SPIN_MS);
+    const st = await getState(A, null);
+    if ("same" in st) throw new Error();
+    const L = st.game.letter!;
+    const full = (x: string) => ({ nombre: L + "ana" + x, serie: L + "ola", lugar: L + "ola", color: L + "ojo" + x, marca: L + "ola" });
+    await act({ type: "basta", playerId: A, answers: full("a") });
+    await act({ type: "answer", playerId: B, answers: full("b") });
+    await act({ type: "answer", playerId: C, answers: full("c") });
+
+    const vote = (playerId: string, value: "si" | "no" | null, target = A) =>
+      act({ type: "vote", playerId, target, cat: "color", value });
+    await expect(vote(B, "no")).rejects.toThrow("revisión");
+    vi.advanceTimersByTime(STOP_MS);
+
+    const view = async () => {
+      const s = await getState(A, null);
+      if ("same" in s) throw new Error();
+      return s;
+    };
+    await expect(vote(A, "no")).rejects.toThrow("propia");
+    await expect(vote(B, "si")).rejects.toThrow("Nadie cuestionó");
+
+    await vote(B, "no");
+    let s = await view();
+    expect(s.votes[`${A}|color`]).toEqual({ [B]: false });
+    expect(s.invalid).toEqual([`${A}|color`]);
+    expect(s.preview![A].color).toBe(0);
+
+    await vote(C, "si"); // empate: queda
+    s = await view();
+    expect(s.invalid).toEqual([]);
+    expect(s.preview![A].color).toBe(10);
+
+    await vote(C, "no"); // cambia de opinión: 2 a 0
+    expect((await view()).invalid).toEqual([`${A}|color`]);
+
+    await vote(C, null);
+    await vote(B, null); // nadie la cuestiona: se cierra la votación
+    s = await view();
+    expect(s.votes).toEqual({});
+    expect(s.invalid).toEqual([]);
+
+    await vote(B, "no");
+    await vote(C, "no");
+    await act({ type: "leave", playerId: C }); // el voto de quien se fue no cuenta
+    await vote(B, "no", A);
+    await act({ type: "closeRound", playerId: A });
+    s = await view();
+    expect(s.results[0].invalid).toEqual([`${A}|color`]);
+    expect(s.results[0].votes).toEqual({ [`${A}|color`]: { [B]: false } });
+    expect(s.votes).toEqual({});
     vi.useRealTimers();
   });
 });

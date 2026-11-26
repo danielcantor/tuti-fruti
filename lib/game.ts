@@ -37,6 +37,8 @@ export type RoundResult = {
   answers?: Record<string, Answers>;
   /** Respuestas anuladas, como "playerId|categoria". */
   invalid?: string[];
+  /** Cómo votó cada uno las respuestas cuestionadas (no está en partidas viejas). */
+  votes?: Votes;
   /** Quién cantó ¡Basta! (null si se cortó por tiempo). */
   bastaBy?: string | null;
 };
@@ -200,6 +202,46 @@ export function answerProblem(answer: string, letter: string, cat: CategoryKey):
 export const invalidKey = (playerId: string, cat: CategoryKey) => `${playerId}|${cat}`;
 
 /**
+ * Votos de la revisión: "playerId|categoria" -> votante -> true si dice que
+ * vale, false si dice que no vale. Una respuesta entra en votación cuando
+ * alguien vota "no vale".
+ */
+export type Votes = Record<string, Record<string, boolean>>;
+
+/**
+ * Respuestas anuladas por votación: más votos "no vale" que "vale". El empate
+ * favorece a quien la escribió, y su propio voto no cuenta. Solo cuentan los
+ * votos de quienes siguen en la sala.
+ */
+export function invalidFromVotes(votes: Votes, voters?: Set<string>): string[] {
+  const out: string[] = [];
+  for (const [key, byVoter] of Object.entries(votes)) {
+    const author = key.split("|")[0];
+    let no = 0;
+    let yes = 0;
+    for (const [voter, ok] of Object.entries(byVoter)) {
+      if (voter === author || (voters && !voters.has(voter))) continue;
+      if (ok) yes++;
+      else no++;
+    }
+    if (no > yes) out.push(key);
+  }
+  return out.sort();
+}
+
+/** Convierte el hash guardado ("autor|cat|votante" -> "no"/"si") en Votes. */
+export function parseVotes(h: Record<string, string>): Votes {
+  const out: Votes = {};
+  for (const [field, v] of Object.entries(h)) {
+    const [author, cat, voter] = field.split("|");
+    if (!author || !cat || !voter || (v !== "si" && v !== "no")) continue;
+    const key = `${author}|${cat}`;
+    (out[key] ??= {})[voter] = v === "si";
+  }
+  return out;
+}
+
+/**
  * 10 si la respuesta válida es única, 5 si otro jugador puso lo mismo,
  * 0 si está vacía, no empieza con la letra o fue marcada como inválida.
  */
@@ -285,6 +327,8 @@ export type ClientState = {
   /** En revisión: las de todos. Antes: solo las del que pregunta. */
   answers: Record<string, Answers>;
   invalid: string[];
+  /** Votaciones abiertas de la revisión (vacío fuera de la revisión). */
+  votes: Votes;
   results: RoundResult[];
   totals: Record<string, number>;
   /** Puntos en vivo de la ronda en revisión. */

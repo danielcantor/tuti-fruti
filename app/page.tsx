@@ -330,10 +330,12 @@ function Table({ g }: { g: G }) {
               letter={game.letter ?? ""}
               answers={state.answers}
               invalid={state.invalid}
+              votes={state.votes ?? {}}
               preview={state.preview ?? {}}
+              online={players.filter((p) => p.online).map((p) => p.id)}
               nameOf={nameOf}
               me={me}
-              onToggle={(target, cat) => send({ type: "toggleInvalid", target, cat })}
+              onVote={(target, cat, value) => send({ type: "vote", target, cat, value })}
               onClose={() => send({ type: "closeRound" })}
               isOwner={isOwner}
               ownerName={ownerName}
