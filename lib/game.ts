@@ -1,6 +1,6 @@
 // Lógica pura del juego: tipos, constantes, fases y puntaje. Sin I/O.
 
-export const LETTERS = "ABCDEFGHIJLMNOPRSTUVZ".split("");
+export const LETTERS = "ABCDEFGHIJLMNOPRSTUVWXYZ".split("");
 
 /** Todas las categorías posibles; el dueño elige cuáles se juegan. */
 export const CATEGORIES = [
