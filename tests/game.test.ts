@@ -6,6 +6,7 @@ import {
   STOP_MS,
   VOTE_MS,
   MARK_MS,
+  LETTERS,
   answerProblem,
   cleanCategories,
   derivePhase,
@@ -82,13 +83,22 @@ describe("fases y letras", () => {
   it("no repite letras hasta agotarlas", () => {
     let used: string[] = [];
     const seen = new Set<string>();
-    for (let i = 0; i < 21; i++) {
+    for (let i = 0; i < LETTERS.length; i++) {
       const r = pickLetter(used);
       expect(seen.has(r.letter)).toBe(false);
       seen.add(r.letter);
       used = r.used;
     }
     expect(pickLetter(used).used).toHaveLength(1);
+  });
+
+  it("incluye W, X e Y", () => {
+    expect(LETTERS).toEqual(expect.arrayContaining(["W", "X", "Y"]));
+    expect(LETTERS).toHaveLength(24);
+    expect(answerProblem("Wanda", "W", "nombre")).toBeNull();
+    expect(answerProblem("Xilofón", "X", "objeto")).toBeNull();
+    expect(answerProblem("Yacaré", "Y", "animal")).toBeNull();
+    expect(answerProblem("Wok", "W", "objeto")).toBeNull();
   });
 });
 
