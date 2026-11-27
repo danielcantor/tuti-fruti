@@ -1,6 +1,6 @@
 // Lógica pura del juego: tipos, constantes, fases y puntaje. Sin I/O.
 
-export const LETTERS = "ABCDEFGHIJLMNOPRSTUVWXYZ".split("");
+export const LETTERS = "ABCDEFGHIJKLMNÑOPQRSTUVWXYZ".split("");
 
 /** Todas las categorías posibles; el dueño elige cuáles se juegan. */
 export const CATEGORIES = [
@@ -264,7 +264,8 @@ export function answerProblem(answer: string | undefined, letter: string, cat: C
   if (!n.startsWith(normalize(letter))) return `No empieza con ${letter}`;
   const ls = n.replace(/[^a-zñ]/g, "");
   const sigla = cat === "marca" || (SIGLA_OK.has(cat) && isSigla(raw));
-  const min = SHORT_OK.has(cat) || sigla ? 2 : 3;
+  // Con la Ñ casi no hay palabras (ñu, ñame): ahí alcanza con dos letras.
+  const min = SHORT_OK.has(cat) || sigla || normalize(letter) === "ñ" ? 2 : 3;
   // En siglas cuentan los números (U2, 3M).
   const chars = sigla ? n.replace(/[^a-z0-9ñ]/g, "") : ls;
   if (chars.length < min) return `Muy corta (mínimo ${min} letras)`;

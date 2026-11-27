@@ -58,12 +58,20 @@ export default function Wheel({ round, letter, spinAt, used, serverNow, spinning
           }}
         >
           {LETTERS.map((l, i) => {
-            const dark = i % 2 === 0;
+            // Con una cantidad impar de letras, la última tiene otro color para no
+            // quedar pegada a la primera con el mismo tono.
+            const odd = N % 2 === 1 && i === N - 1;
+            const dark = !odd && i % 2 === 0;
             const isUsed = used.includes(l) && !(l === letter && !spinning);
             const mid = i * SEG + SEG / 2;
             return (
               <g key={l}>
-                <path d={arc(i)} fill={dark ? "var(--wheel-a)" : "var(--wheel-b)"} stroke="var(--paper)" strokeWidth="1.5" />
+                <path
+                  d={arc(i)}
+                  fill={odd ? "var(--accent-soft)" : dark ? "var(--wheel-a)" : "var(--wheel-b)"}
+                  stroke="var(--paper)"
+                  strokeWidth="1.5"
+                />
                 <text
                   x={C}
                   y={C - R + 26}

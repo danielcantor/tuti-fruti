@@ -92,9 +92,17 @@ describe("fases y letras", () => {
     expect(pickLetter(used).used).toHaveLength(1);
   });
 
-  it("incluye W, X e Y", () => {
-    expect(LETTERS).toEqual(expect.arrayContaining(["W", "X", "Y"]));
-    expect(LETTERS).toHaveLength(24);
+  it("tiene las 27 letras, incluidas K, Ñ, Q, W, X e Y", () => {
+    expect(LETTERS.join("")).toBe("ABCDEFGHIJKLMNÑOPQRSTUVWXYZ");
+    expect(answerProblem("Kiwi", "K", "fruta")).toBeNull();
+    expect(answerProblem("Queso", "Q", "comida")).toBeNull();
+    expect(answerProblem("Ñu", "Ñ", "animal")).toBeNull(); // con la Ñ alcanzan dos letras
+    expect(answerProblem("Ñoquis", "Ñ", "comida")).toBeNull();
+    expect(answerProblem("Ñandú", "Ñ", "nombre")).toBeNull();
+    expect(answerProblem("Nandu", "Ñ", "nombre")).toMatch(/No empieza/);
+    expect(answerProblem("Ñ", "Ñ", "animal")).toMatch(/corta/);
+    expect(answerProblem("Ñu", "N", "animal")).toMatch(/No empieza/);
+    expect(answerProblem("Oz", "O", "lugar")).toMatch(/corta/); // fuera de la Ñ sigue el mínimo de 3
     expect(answerProblem("Wanda", "W", "nombre")).toBeNull();
     expect(answerProblem("Xilofón", "X", "objeto")).toBeNull();
     expect(answerProblem("Yacaré", "Y", "animal")).toBeNull();
